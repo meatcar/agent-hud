@@ -1,16 +1,16 @@
 # agent-hud
 
-Fast two-line statusline for [Claude Code](https://code.claude.com). A single bun
-process, zero runtime dependencies.
+Fast two-line statusline for [Claude Code](https://code.claude.com). One bun
+process, zero dependencies.
 
-- **Line 1** — model + reasoning effort, context remaining, cache hit rate,
-  5h/7d rate-limit bars with burn-down ETAs, clock.
-- **Line 2** — repo name, VCS drift (jj or git: branch, ahead/behind), worktree branch.
-
-Rate limits are shared across concurrent sessions through a small on-disk DB, so
-every pane shows current numbers even when only one session is receiving updates.
-Idle re-renders align to the minute boundary so time-derived labels never show
-stale minutes.
+- Shows the model and its reasoning effort
+- Shows how much context is left and the cache hit rate
+- Bars for the 5-hour and 7-day rate limits, with time until you hit them
+- Clock
+- Repo name, branch, and how far you are from trunk (jj and git)
+- Sessions share rate-limit numbers through a small on-disk DB, so every pane
+  stays current even when only one is talking to the API
+- Idle refreshes wait for the minute to tick over, so the clock is never stale
 
 ## Install
 
@@ -30,7 +30,7 @@ brew trust meatcar/tap # interactive brew prompts instead
 brew install --HEAD meatcar/tap/agent-hud
 ```
 
-**npm / bun** (needs [bun](https://bun.com) on `PATH`):
+**npm / bun:**
 
 ```sh
 bun install -g @meatcar/agent-hud
