@@ -3,8 +3,9 @@
 - [x] CI: `bun run check` + `bun test` on push/PR — `.github/workflows/ci.yml`
 - [x] Releases + changelog: release-please — `.github/workflows/release-please.yml`
 - [x] Renovate config, automerge on green CI — `renovate.json`
-- [ ] Screenshot generator: fixtures → ANSI → PNG → `SCREENSHOTS.md` via showboat
-- [ ] Link screenshots from README
+- [x] Screenshot generator: fixtures → ANSI → freeze SVG → resvg PNG →
+      `screenshots/README.md` via showboat — `bun run screenshots`
+- [x] Link screenshots from README
 
 Needs a human:
 

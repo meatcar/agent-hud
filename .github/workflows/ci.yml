@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
+      # jj isn't on GitHub runners; the vcs drift tests need it
+      - uses: DeterminateSystems/nix-installer-action@main
+      - run: nix profile install nixpkgs#jujutsu
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun test

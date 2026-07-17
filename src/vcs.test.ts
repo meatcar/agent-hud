@@ -175,7 +175,7 @@ describe("getDrift git", () => {
   });
 });
 
-describe("getDrift jj", () => {
+describe.skipIf(Bun.which("jj") === null)("getDrift jj", () => {
   test("counts commits past trunk() with nearest bookmark", async () => {
     const root = tmp();
     const jj = async (...argv: string[]) => {

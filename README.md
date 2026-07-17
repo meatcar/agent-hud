@@ -12,6 +12,10 @@ process, zero dependencies.
   stays current even when only one is talking to the API
 - Idle refreshes wait for the minute to tick over, so the clock is never stale
 
+![agent-hud in a busy session](screenshots/loaded.png)
+
+More in [screenshots/](screenshots/README.md) — regenerate with `bun run screenshots`.
+
 ## Install
 
 **Nix:**
