@@ -65,17 +65,17 @@ echo '{}' | agent-hud
 
 ## Environment
 
-| Var                  | Effect                                                 |
-| -------------------- | ------------------------------------------------------ |
-| `AGENT_HUD_STATE_DIR`| State location (default `~/.claude/agent-hud-state`)   |
-| `AGENT_HUD_NO_ALIGN` | Skip sleeping to the minute boundary on idle re-renders|
-| `NO_COLOR`           | Disable ANSI colors                                    |
+| Var                   | Effect                                                  |
+| --------------------- | ------------------------------------------------------- |
+| `AGENT_HUD_STATE_DIR` | State location (default `~/.claude/agent-hud-state`)    |
+| `AGENT_HUD_NO_ALIGN`  | Skip sleeping to the minute boundary on idle re-renders |
+| `NO_COLOR`            | Disable ANSI colors                                     |
 
 ## Development
 
 ```sh
 bun test
-bun run check   # tsc --noEmit
+bun run check   # oxlint + fallow, treefmt --check
 bun run bench   # hyperfine comparison, see bench/run.sh
 ```
 
