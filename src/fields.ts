@@ -111,5 +111,5 @@ export interface Line2Params {
 export const buildLine2 = (params: Line2Params): string => {
   const wt = params.worktreeBranch ? colors.dim(`[${params.worktreeBranch}]`) : "";
   const parts = [params.repoOut, wt, params.driftOut].filter((part) => part !== "");
-  return `\t${parts.join(" ")}`;
+  return parts.join(" ");
 };

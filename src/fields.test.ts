@@ -46,12 +46,12 @@ describe("buildLine1 effort", () => {
 describe("buildLine2", () => {
   test("joins repo, worktree, and drift with single spaces", () => {
     const out = buildLine2({ repoOut: "proj", driftOut: "main ⇡2", worktreeBranch: "wt" });
-    expect(stripAnsi(out)).toBe("\tproj [wt] main ⇡2");
+    expect(stripAnsi(out)).toBe("proj [wt] main ⇡2");
   });
 
   test("omits empty segments", () => {
     expect(
       stripAnsi(buildLine2({ repoOut: "proj", driftOut: "", worktreeBranch: undefined })),
-    ).toBe("\tproj");
+    ).toBe("proj");
   });
 });
