@@ -1,7 +1,7 @@
 export const isObject = (val: unknown): val is Record<string, unknown> =>
   typeof val === "object" && val !== null;
 
-export const dig = (obj: unknown, keys: string[]): unknown => {
+const dig = (obj: unknown, keys: string[]): unknown => {
   let cur: unknown = obj;
   for (const key of keys) {
     cur = isObject(cur) ? cur[key] : undefined;

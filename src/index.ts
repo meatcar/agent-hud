@@ -9,12 +9,18 @@ import { type Fields, buildLine1, buildLine2, extractFields } from "./fields.ts"
 import { maybeGc } from "./gc.ts";
 import { cacheHitPct, msToNextMinute } from "./helpers.ts";
 import { renderClockGroup } from "./powerline.ts";
-import { type SessionInfo, makeBucket, mergeWithSharedDb, renderChanged } from "./rate-limits.ts";
+import {
+  type Bucket,
+  type RateLimitsV1,
+  type SessionInfo,
+  makeBucket,
+  mergeWithSharedDb,
+  renderChanged,
+} from "./rate-limits.ts";
 import { loadSessionStart } from "./session.ts";
-import { findRepo, getDrift, renderDrift, repoLabel } from "./vcs.ts";
+import { type Drift, findRepo, getDrift, renderDrift, repoLabel } from "./vcs.ts";
 
-const STATE_DIR =
-  process.env.AGENT_HUD_STATE_DIR ?? join(homedir(), ".claude", "agent-hud-state");
+const STATE_DIR = process.env.AGENT_HUD_STATE_DIR ?? join(homedir(), ".claude", "agent-hud-state");
 const SHARED_DB_PATH = join(STATE_DIR, "shared.db");
 
 const buildSession = (
@@ -43,11 +49,38 @@ const alignedNow = async (sessionId: string | undefined, contentFp: string): Pro
   return Math.floor(Date.now() / MS_PER_SEC);
 };
 
+const startDrift = (repo: ReturnType<typeof findRepo>): Promise<Drift | undefined> =>
+  repo !== undefined ? getDrift(repo) : Promise.resolve(undefined);
+
+const bucketFields = (
+  bucket: Bucket | undefined,
+): { pct: number | undefined; resetsAt: number | undefined } => ({
+  pct: bucket?.pct,
+  resetsAt: bucket?.resetsAt,
+});
+
+// Flatten merged buckets into the line-1 param names
+const limitParams = (
+  rateLimits: RateLimitsV1,
+): Pick<
+  Parameters<typeof buildLine1>[0],
+  "fiveHourPct" | "fiveHourReset" | "sevenDayPct" | "sevenDayReset"
+> => {
+  const fiveHour = bucketFields(rateLimits.fiveHour);
+  const sevenDay = bucketFields(rateLimits.sevenDay);
+  return {
+    fiveHourPct: fiveHour.pct,
+    fiveHourReset: fiveHour.resetsAt,
+    sevenDayPct: sevenDay.pct,
+    sevenDayReset: sevenDay.resetsAt,
+  };
+};
+
 const main = async (): Promise<void> => {
   const fields = extractFields(JSON.parse(await Bun.stdin.text()));
   const cwd = fields.projectDir ?? process.cwd();
   const repo = findRepo(cwd);
-  const driftPromise = repo !== undefined ? getDrift(repo) : Promise.resolve(undefined);
+  const driftPromise = startDrift(repo);
   const { sessionId, session } = buildSession(fields);
   const [sessionStart] = await Promise.all([
     loadSessionStart(sessionId, fields.transcriptPath, STATE_DIR),
@@ -69,10 +102,7 @@ const main = async (): Promise<void> => {
   const now = await alignedNow(sessionId, JSON.stringify({ fields, line2 }));
   const line1 = buildLine1({
     ...fields,
-    fiveHourPct: rateLimits.fiveHour?.pct,
-    fiveHourReset: rateLimits.fiveHour?.resetsAt,
-    sevenDayPct: rateLimits.sevenDay?.pct,
-    sevenDayReset: rateLimits.sevenDay?.resetsAt,
+    ...limitParams(rateLimits),
     sessionStart,
     now,
     ttlSecs: resolveTtlSecs(process.env, rateLimits),

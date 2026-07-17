@@ -12,7 +12,7 @@ export interface CellSpec {
 
 export type Weights = Record<Zone, Record<Zone, number>>;
 
-export const DEFAULT_WEIGHTS: Weights = {
+const DEFAULT_WEIGHTS: Weights = {
   F: { F: 0, E: 1, B: 2 },
   E: { F: 1, E: 0, B: 2 },
   B: { F: 2, E: 2, B: 0 },
@@ -84,7 +84,7 @@ const tryAllCandidates = (trySpec: (spec: CellSpec) => void): void => {
   }
 };
 
-export const optimalCell = (idealCell: Zone[], weights: Weights = DEFAULT_WEIGHTS): CellSpec => {
+const optimalCell = (idealCell: Zone[], weights: Weights = DEFAULT_WEIGHTS): CellSpec => {
   let bestSpec: CellSpec = { bg: "B", fg: "B", kind: "solid", eighths: 0 };
   let bestError = Infinity;
 

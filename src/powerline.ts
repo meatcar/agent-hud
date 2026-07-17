@@ -44,7 +44,7 @@ const bold =
   (fn: ColorFn): ColorFn =>
   (str) =>
     colors.bold(fn(str));
-export const GREY: Tone = {
+const GREY: Tone = {
   bg: colors.inverse,
   fg: colors.dim,
   text: colors.bold,
@@ -165,49 +165,74 @@ const paintRun = (
   );
 };
 
+// The boundary cell where a sub-cell edge starts: marker wins, else a partial
+// Block glyph carrying the edge fg over the fill bg.
+const renderEdgeBoundary = (
+  state: BarRenderState,
+  fillTone: Tone,
+  edgeBoundaryCell: number,
+  marker: ResolvedMarker | undefined,
+): string => {
+  if (edgeBoundaryCell < 0) {
+    return "";
+  }
+  const { edgeStart, edgeTone } = state;
+  return marker?.cell === edgeBoundaryCell
+    ? markerCell(marker.tone, edgeTone ?? fillTone)
+    : (edgeTone ?? fillTone).bg(fillTone.fg(EIGHTHS[edgeStart % EIGHTHS_PER_CELL] ?? " "));
+};
+
+// The partial cell at the fill/bg boundary: marker wins, else an eighths glyph.
+const renderLeadingEdge = (
+  state: BarRenderState,
+  fillTone: Tone,
+  bgTone: Tone,
+  marker: ResolvedMarker | undefined,
+): string => {
+  const { full, partial, hasPartial, edgeEighths, edgeTone } = state;
+  if (!hasPartial) {
+    return "";
+  }
+  if (marker?.cell === full) {
+    return markerCell(marker.tone, bgTone);
+  }
+  const fgTone = edgeTone !== undefined && edgeEighths > 0 ? edgeTone : fillTone;
+  const char = EIGHTHS[partial] ?? " ";
+  return bgTone.renderBlock ? bgTone.renderBlock(fgTone.bg, char) : bgTone.bg(fgTone.fg(char));
+};
+
 const renderBarContent = (
   state: BarRenderState,
   fillTone: Tone,
   bgTone: Tone,
   marker?: ResolvedMarker,
 ): string => {
-  const { content, full, partial, hasPartial, edgeStart, edgeEighths, edgeTone } = state;
+  const { content, full, hasPartial, edgeTone } = state;
   const { edgeBoundaryCell, edgeSolidStart } = computeEdgeBoundaries(state);
   const fillEnd = edgeBoundaryCell >= 0 ? edgeBoundaryCell : edgeSolidStart;
-
-  const fillStr = paintRun(content, 0, fillEnd, fillTone, marker);
-
-  let edgeBoundaryStr = "";
-  if (edgeBoundaryCell >= 0) {
-    edgeBoundaryStr =
-      marker?.cell === edgeBoundaryCell
-        ? markerCell(marker.tone, edgeTone ?? fillTone)
-        : (edgeTone ?? fillTone).bg(fillTone.fg(EIGHTHS[edgeStart % EIGHTHS_PER_CELL] ?? " "));
-  }
-  const edgeStr = paintRun(content, edgeSolidStart, full, edgeTone ?? fillTone, marker);
-
-  const leadingEdgeFgTone = edgeTone !== undefined && edgeEighths > 0 ? edgeTone : fillTone;
-  const char = EIGHTHS[partial] ?? " ";
-  let leadingEdgeStr = "";
-  if (hasPartial && marker?.cell === full) {
-    leadingEdgeStr = markerCell(marker.tone, bgTone);
-  } else if (hasPartial) {
-    leadingEdgeStr = bgTone.renderBlock
-      ? bgTone.renderBlock(leadingEdgeFgTone.bg, char)
-      : bgTone.bg(leadingEdgeFgTone.fg(char));
-  }
-
-  const bgStr = paintRun(content, full + (hasPartial ? 1 : 0), content.length, bgTone, marker);
-
-  return fillStr + edgeBoundaryStr + edgeStr + leadingEdgeStr + bgStr;
+  return (
+    paintRun(content, 0, fillEnd, fillTone, marker) +
+    renderEdgeBoundary(state, fillTone, edgeBoundaryCell, marker) +
+    paintRun(content, edgeSolidStart, full, edgeTone ?? fillTone, marker) +
+    renderLeadingEdge(state, fillTone, bgTone, marker) +
+    paintRun(content, full + (hasPartial ? 1 : 0), content.length, bgTone, marker)
+  );
 };
 
-const tryFitWidth = (width: number, ctx: BarContext, force = false): string | undefined => {
+interface BarGeometry {
+  full: number;
+  partial: number;
+  hasPartial: boolean;
+  edgeStart: number;
+  edgeEighths: number;
+  edgeBoundaryCell: number;
+}
+
+const computeGeometry = (width: number, ctx: BarContext): BarGeometry => {
   const totalEighths = Math.round((ctx.pct * width * EIGHTHS_PER_CELL) / PERCENT);
   const full = Math.floor(totalEighths / EIGHTHS_PER_CELL);
   const partial = totalEighths % EIGHTHS_PER_CELL;
   const hasPartial = partial > 0 && full < width;
-
   const edgeEighths = ctx.leadingEdge
     ? Math.round((ctx.leadingEdge.pct * totalEighths) / PERCENT)
     : 0;
@@ -219,36 +244,46 @@ const tryFitWidth = (width: number, ctx: BarContext, force = false): string | un
     (edgeEighths >= EIGHTHS_PER_CELL || !hasPartial)
       ? Math.floor(edgeStart / EIGHTHS_PER_CELL)
       : -1;
+  return { full, partial, hasPartial, edgeStart, edgeEighths, edgeBoundaryCell };
+};
 
-  const marker =
-    ctx.marker !== undefined && ctx.pct > ctx.marker.pctPos
-      ? {
-          cell: Math.min(width - 1, Math.floor((ctx.marker.pctPos / PERCENT) * width)),
-          tone: ctx.marker.tone,
-        }
-      : undefined;
+const resolveMarker = (width: number, ctx: BarContext): ResolvedMarker | undefined =>
+  ctx.marker !== undefined && ctx.pct > ctx.marker.pctPos
+    ? {
+        cell: Math.min(width - 1, Math.floor((ctx.marker.pctPos / PERCENT) * width)),
+        tone: ctx.marker.tone,
+      }
+    : undefined;
+
+const tryFitWidth = (width: number, ctx: BarContext, force = false): string | undefined => {
+  const { full, partial, hasPartial, edgeStart, edgeEighths, edgeBoundaryCell } = computeGeometry(
+    width,
+    ctx,
+  );
+  const marker = resolveMarker(width, ctx);
   const reserved = [
     hasPartial ? full : -1,
     edgeBoundaryCell < full ? edgeBoundaryCell : -1,
     marker?.cell ?? -1,
   ].filter((cell) => cell >= 0);
   const content = layoutLabelsAround({ width, labels: ctx.labels, reserved, margin: ctx.margin });
-  return force || ctx.labels.every((lbl) => lbl.length === 0 || content.includes(lbl))
-    ? renderBarContent(
-        {
-          content,
-          full,
-          partial,
-          hasPartial,
-          edgeStart,
-          edgeEighths,
-          edgeTone: ctx.leadingEdge?.tone,
-        },
-        ctx.fillTone,
-        ctx.bgTone,
-        marker,
-      )
-    : undefined;
+  if (!force && !ctx.labels.every((lbl) => lbl.length === 0 || content.includes(lbl))) {
+    return undefined;
+  }
+  return renderBarContent(
+    {
+      content,
+      full,
+      partial,
+      hasPartial,
+      edgeStart,
+      edgeEighths,
+      edgeTone: ctx.leadingEdge?.tone,
+    },
+    ctx.fillTone,
+    ctx.bgTone,
+    marker,
+  );
 };
 
 export const fractionalBar = ({

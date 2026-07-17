@@ -3,51 +3,6 @@
 
 type Formatter = ((input: unknown) => string) & { open: string; close: string };
 
-// [open, close, replace?] — replace patches nested close codes (bold/dim share 22)
-const CODES = {
-  reset: [0, 0],
-  bold: [1, 22, "\u001B[22m\u001B[1m"],
-  dim: [2, 22, "\u001B[22m\u001B[2m"],
-  italic: [3, 23],
-  underline: [4, 24],
-  inverse: [7, 27],
-  hidden: [8, 28],
-  strikethrough: [9, 29],
-  black: [30, 39],
-  red: [31, 39],
-  green: [32, 39],
-  yellow: [33, 39],
-  blue: [34, 39],
-  magenta: [35, 39],
-  cyan: [36, 39],
-  white: [37, 39],
-  gray: [90, 39],
-  bgBlack: [40, 49],
-  bgRed: [41, 49],
-  bgGreen: [42, 49],
-  bgYellow: [43, 49],
-  bgBlue: [44, 49],
-  bgMagenta: [45, 49],
-  bgCyan: [46, 49],
-  bgWhite: [47, 49],
-  blackBright: [90, 39],
-  redBright: [91, 39],
-  greenBright: [92, 39],
-  yellowBright: [93, 39],
-  blueBright: [94, 39],
-  magentaBright: [95, 39],
-  cyanBright: [96, 39],
-  whiteBright: [97, 39],
-  bgBlackBright: [100, 49],
-  bgRedBright: [101, 49],
-  bgGreenBright: [102, 49],
-  bgYellowBright: [103, 49],
-  bgBlueBright: [104, 49],
-  bgMagentaBright: [105, 49],
-  bgCyanBright: [106, 49],
-  bgWhiteBright: [107, 49],
-} satisfies Record<string, [number, number] | [number, number, string]>;
-
 // Colors default ON when piped (FORCE_TTY !== "false") — a statusline's
 // consumer renders ANSI but isn't a TTY.
 const isSupported = (): boolean => {
@@ -93,11 +48,52 @@ const identity: Formatter = Object.assign((input: unknown) => String(input), {
 const esc = (code: number): string => `\u001B[${code}m`;
 const enabled = isSupported();
 
-const colors = Object.fromEntries(
-  Object.entries(CODES).map(([name, [open, close, replace]]) => [
-    name,
-    enabled ? formatter(esc(open), esc(close), replace) : identity,
-  ]),
-) as Record<keyof typeof CODES, Formatter>;
+// replace patches nested close codes (bold/dim share 22)
+const mk = (open: number, close: number, replace?: string): Formatter =>
+  enabled ? formatter(esc(open), esc(close), replace) : identity;
+
+const colors = {
+  reset: mk(0, 0),
+  bold: mk(1, 22, "\u001B[22m\u001B[1m"),
+  dim: mk(2, 22, "\u001B[22m\u001B[2m"),
+  italic: mk(3, 23),
+  underline: mk(4, 24),
+  inverse: mk(7, 27),
+  hidden: mk(8, 28),
+  strikethrough: mk(9, 29),
+  black: mk(30, 39),
+  red: mk(31, 39),
+  green: mk(32, 39),
+  yellow: mk(33, 39),
+  blue: mk(34, 39),
+  magenta: mk(35, 39),
+  cyan: mk(36, 39),
+  white: mk(37, 39),
+  gray: mk(90, 39),
+  bgBlack: mk(40, 49),
+  bgRed: mk(41, 49),
+  bgGreen: mk(42, 49),
+  bgYellow: mk(43, 49),
+  bgBlue: mk(44, 49),
+  bgMagenta: mk(45, 49),
+  bgCyan: mk(46, 49),
+  bgWhite: mk(47, 49),
+  blackBright: mk(90, 39),
+  redBright: mk(91, 39),
+  greenBright: mk(92, 39),
+  yellowBright: mk(93, 39),
+  blueBright: mk(94, 39),
+  magentaBright: mk(95, 39),
+  cyanBright: mk(96, 39),
+  whiteBright: mk(97, 39),
+  bgBlackBright: mk(100, 49),
+  bgRedBright: mk(101, 49),
+  bgGreenBright: mk(102, 49),
+  bgYellowBright: mk(103, 49),
+  bgBlueBright: mk(104, 49),
+  bgMagentaBright: mk(105, 49),
+  bgCyanBright: mk(106, 49),
+  bgWhiteBright: mk(107, 49),
+};
 
 export default colors;
