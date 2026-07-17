@@ -1,0 +1,82 @@
+{
+  "results": [
+    {
+      "command": "bash ~/.claude/statusline-command.sh < packages/statusline/bench/average.json",
+      "parameters": { "fixture": "average" },
+      "mean": 0.1053,
+      "stddev": 0.0061,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": null,
+      "max": null,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bun run packages/statusline/index.ts < packages/statusline/bench/average.json",
+      "parameters": { "fixture": "average" },
+      "mean": 0.0431,
+      "stddev": 0.0035,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": null,
+      "max": null,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bash ~/.claude/statusline-command.sh < packages/statusline/bench/heavy.json",
+      "parameters": { "fixture": "heavy" },
+      "mean": 0.1072,
+      "stddev": 0.007,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": null,
+      "max": null,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bun run packages/statusline/index.ts < packages/statusline/bench/heavy.json",
+      "parameters": { "fixture": "heavy" },
+      "mean": 0.0533,
+      "stddev": 0.0076,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": null,
+      "max": null,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bash ~/.claude/statusline-command.sh < packages/statusline/bench/worst.json",
+      "parameters": { "fixture": "worst" },
+      "mean": 0.1144,
+      "stddev": 0.0091,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": null,
+      "max": null,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bun run packages/statusline/index.ts < packages/statusline/bench/worst.json",
+      "parameters": { "fixture": "worst" },
+      "mean": 0.0595,
+      "stddev": 0.0064,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": null,
+      "max": null,
+      "times": null,
+      "exit_codes": null
+    }
+  ]
+}

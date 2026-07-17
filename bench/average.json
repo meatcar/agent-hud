@@ -1,0 +1,21 @@
+{
+  "workspace": { "project_dir": "/git/hub/meatcar/experiments/experiments-default" },
+  "model": { "id": "claude-sonnet-4-6" },
+  "vim": { "mode": "NORMAL" },
+  "session_id": "bench-average",
+  "session_name": "bench-average",
+  "transcript_path": "/home/meatcar/.claude/projects/-git-hub-meatcar-experiments/e26f22b5-7823-41cc-922a-ab68a32155fa.jsonl",
+  "context_window": {
+    "remaining_percentage": 62,
+    "current_usage": {
+      "cache_read_input_tokens": 120000,
+      "cache_creation_input_tokens": 4000,
+      "input_tokens": 3000
+    }
+  },
+  "rate_limits": {
+    "five_hour": { "used_percentage": 41, "resets_at": "2026-04-17T19:00:00Z" },
+    "seven_day": { "used_percentage": 18, "resets_at": "2026-04-21T00:00:00Z" }
+  },
+  "worktree": { "branch": "main" }
+}

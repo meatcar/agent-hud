@@ -1,0 +1,43 @@
+{
+  "results": [
+    {
+      "command": "bash ~/.claude/statusline-command.sh < packages/statusline/bench/average.json",
+      "parameters": { "fixture": "average" },
+      "mean": 0.1148,
+      "stddev": 0.01,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": 0.0981,
+      "max": 0.1333,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bash ~/.claude/statusline-command.sh < packages/statusline/bench/heavy.json",
+      "parameters": { "fixture": "heavy" },
+      "mean": 0.1096,
+      "stddev": 0.0076,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": 0.0991,
+      "max": 0.1377,
+      "times": null,
+      "exit_codes": null
+    },
+    {
+      "command": "bash ~/.claude/statusline-command.sh < packages/statusline/bench/worst.json",
+      "parameters": { "fixture": "worst" },
+      "mean": 0.1132,
+      "stddev": 0.0102,
+      "median": null,
+      "user": null,
+      "system": null,
+      "min": 0.0971,
+      "max": 0.1354,
+      "times": null,
+      "exit_codes": null
+    }
+  ]
+}

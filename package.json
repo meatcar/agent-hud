@@ -1,0 +1,23 @@
+{
+  "name": "agent-hud",
+  "version": "0.1.0",
+  "description": "Fast statusline HUD for Claude Code",
+  "license": "MIT",
+  "repository": "github:meatcar/agent-hud",
+  "type": "module",
+  "bin": {
+    "agent-hud": "src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build --target=bun --banner='#!/usr/bin/env bun' --outfile=dist/agent-hud.ts src/index.ts",
+    "deploy": "bun run build && cp dist/agent-hud.ts $HOME/.claude/agent-hud.ts",
+    "check": "tsc --noEmit",
+    "bench": "bash bench/run.sh",
+    "bench:analyze": "bun run bench/analyze.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.8.0"
+  }
+}
