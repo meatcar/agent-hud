@@ -1,12 +1,26 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
-  "automerge": true,
+  "extends": ["config:best-practices"],
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
+  "osvVulnerabilityAlerts": true,
   "nix": {
     "enabled": true
   },
   "lockFileMaintenance": {
-    "enabled": true,
-    "automerge": true
-  }
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "matchDatasources": ["npm"],
+      "matchPackageNames": ["bun", "@types/bun"],
+      "enabled": false
+    }
+  ]
 }
