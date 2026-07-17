@@ -14,7 +14,7 @@ process, zero dependencies.
 
 ![agent-hud in a busy session](screenshots/loaded.png)
 
-More in [screenshots/](screenshots/README.md) — regenerate with `bun run screenshots`.
+Regenerate the screenshot with `bun run screenshots`.
 
 ## Install
 

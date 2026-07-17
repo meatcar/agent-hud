@@ -1,32 +1,28 @@
 #!/usr/bin/env bash
-# Regenerate screenshots/*.png and the screenshots/README.md showcase doc.
-# Needs freeze + showboat (or uvx); re-execs under nix shell when missing.
+# Regenerate screenshots/loaded.png (the README screenshot) via vhs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if ! command -v freeze >/dev/null 2>&1 || ! command -v resvg >/dev/null 2>&1 \
-  || ! { command -v showboat >/dev/null 2>&1 || command -v uvx >/dev/null 2>&1; }; then
-  exec nix shell nixpkgs#charm-freeze nixpkgs#resvg nixpkgs#uv --command "$0" "$@"
+if ! command -v vhs >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+  exec nix shell nixpkgs#vhs nixpkgs#ffmpeg --command "$0" "$@"
 fi
 
-sb() {
-  if command -v showboat >/dev/null 2>&1; then showboat "$@"; else uvx showboat "$@"; fi
-}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
 
-# Freeze's builtin PNG rasterizer ignores font flags and tofus nerd-font icons,
-# so render SVG and rasterize with resvg pointed at a pinned nerd font.
-fontdir=$(dirname "$(find "$(nix build --no-link --print-out-paths nixpkgs#nerd-fonts.jetbrains-mono)" \
-  -name "JetBrainsMonoNerdFontMono-Regular.ttf" | head -1)")
-
-state=$(mktemp -d)
-ansdir=$(mktemp -d)
-trap 'rm -rf "$state" "$ansdir"' EXIT
+# vhs renders in a browser; expose the nerd font to fontconfig via XDG_DATA_HOME
+fontdir=$(dirname "$(find "$(nix build --no-link --print-out-paths nixpkgs#nerd-fonts.iosevka)" \
+  -name "IosevkaNerdFontMono-Regular.ttf" | head -1)")
+mkdir -p "$tmp/share/fonts"
+cp "$fontdir"/*.ttf "$tmp/share/fonts/"
+export XDG_DATA_HOME="$tmp/share"
 
 # Seed the shared DB so the bars render the cross-session merge path
+mkdir -p "$tmp/state"
 now=$(date +%s)
 bun -e "
   import { openDb, writeRateLimits } from './src/rate-limits.ts';
-  const db = openDb('$state/shared.db');
+  const db = openDb('$tmp/state/shared.db');
   writeRateLimits(db, {
     version: 1,
     fiveHour: { pct: 35, resetsAt: $now + 3 * 3600 },
@@ -38,23 +34,16 @@ bun -e "
 reset5=$(date -u -d "+3 hours" +%Y-%m-%dT%H:%M:%SZ)
 reset7=$(date -u -d "+4 days" +%Y-%m-%dT%H:%M:%SZ)
 
-mkdir -p screenshots
+# The vhs shell inherits these, so the tape can run the command as-is
+export AGENT_HUD_STATE_DIR=$tmp/state AGENT_HUD_NO_ALIGN=1
 
-shot() { # $1 = name; fixture JSON on stdin
-  AGENT_HUD_STATE_DIR=$state AGENT_HUD_NO_ALIGN=1 bun src/index.ts > "$ansdir/$1.ans"
-  # </dev/null: freeze reads stdin over --execute when it's a non-tty
-  freeze --execute "cat $ansdir/$1.ans" --font.family "JetBrainsMono Nerd Font Mono" \
-    --padding 16 -o "$ansdir/$1.svg" < /dev/null
-  resvg --use-fonts-dir "$fontdir" --zoom 3 "$ansdir/$1.svg" "screenshots/$1.png"
-}
-
-shot loaded <<EOF
+cat >"$tmp/fixture.json" <<EOF
 {
   "workspace": { "project_dir": "$PWD" },
-  "model": { "id": "claude-fable-5" },
+  "model": { "id": "claude-fable-5[1m]" },
   "effort": { "level": "high" },
   "session_id": "showcase",
-  "transcript_path": "$state/showcase.jsonl",
+  "transcript_path": "$tmp/state/showcase.jsonl",
   "context_window": {
     "remaining_percentage": 38,
     "current_usage": {
@@ -71,21 +60,28 @@ shot loaded <<EOF
 }
 EOF
 
-shot minimal <<EOF
-{
-  "workspace": { "project_dir": "$PWD" },
-  "model": { "id": "claude-haiku-4-5" }
-}
+mkdir -p screenshots
+cat >"$tmp/showcase.tape" <<EOF
+Output "$tmp/showcase.gif"
+Set Theme "Catppuccin Mocha"
+Set FontFamily "Iosevka Nerd Font Mono"
+Set FontSize 16
+Set WindowBar Colorful
+Set BorderRadius 8
+Set Padding 4
+Set Width 900
+Set Height 120
+Type "clear && bun src/index.ts < $tmp/fixture.json && sleep 30"
+Enter
+Sleep 2s
 EOF
+vhs "$tmp/showcase.tape"
 
-doc=screenshots/README.md
-# showboat copies each image next to the doc under a uuid-date name; purge stale copies
-rm -f "$doc" screenshots/????????-????-??-??.png
-sb init "$doc" "agent-hud"
-sb note "$doc" "A busy session: model and effort, cache miss rate, context-used bar, both rate-limit bars with reset countdowns, clock — then the repo, worktree branch, and jj drift on line two."
-sb image "$doc" "![busy session](screenshots/loaded.png)"
-sb note "$doc" "A second session given no rate-limit data on stdin: the bars still render, merged from the on-disk DB the first session wrote. Everything else degrades quietly — model, clock, repo."
-sb image "$doc" "![sparse session, rate limits from the shared db](screenshots/minimal.png)"
+# vhs's Screenshot command is a no-op and raw frames lack the window chrome;
+# the composited look only exists in the gif, so take its last frame
+mkdir -p "$tmp/frames"
+ffmpeg -loglevel error -i "$tmp/showcase.gif" -vsync 0 "$tmp/frames/%05d.png"
+cp "$(ls "$tmp/frames"/*.png | tail -1)" screenshots/loaded.png
 
-chmod 644 screenshots/*.png
-echo "wrote screenshots/*.png and $doc"
+chmod 644 screenshots/loaded.png
+echo "wrote screenshots/loaded.png"
