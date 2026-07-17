@@ -1,9 +1,13 @@
 {
-  "name": "agent-hud",
+  "name": "@meatcar/agent-hud",
   "version": "0.1.0",
   "description": "Fast statusline HUD for Claude Code",
   "license": "MIT",
   "repository": "github:meatcar/agent-hud",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["src", "README.md", "LICENSE"],
   "type": "module",
   "bin": {
     "agent-hud": "src/index.ts"

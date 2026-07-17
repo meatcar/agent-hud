@@ -25,7 +25,15 @@ nix run github:meatcar/agent-hud
 ```sh
 brew tap oven-sh/bun # bun is not in homebrew-core
 brew tap meatcar/tap https://github.com/meatcar/homebrew-tap
+brew trust oven-sh/bun # non-interactive shells only;
+brew trust meatcar/tap # interactive brew prompts instead
 brew install --HEAD meatcar/tap/agent-hud
+```
+
+**npm / bun** (needs [bun](https://bun.com) on `PATH`):
+
+```sh
+bun install -g @meatcar/agent-hud
 ```
 
 **Git:**
