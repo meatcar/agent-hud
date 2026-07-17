@@ -28,6 +28,10 @@
             exec bun "${agent-hud-src}/src/index.ts" "$@"
           '';
         };
+
+        devShells.default = pkgs.mkShell {
+          packages = [ pkgs.bun pkgs.jujutsu ];
+        };
       }
     );
 }
