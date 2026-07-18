@@ -1,6 +1,6 @@
 {
   "name": "@meatcar/agent-hud",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fast statusline HUD for Claude Code",
   "license": "MIT",
   "repository": "github:meatcar/agent-hud",
