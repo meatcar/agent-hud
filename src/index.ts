@@ -4,14 +4,15 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { resolveTtlSecs } from "./cache-ttl.ts";
+import { type Layout, loadLayout } from "./config.ts";
 import { MS_PER_SEC } from "./constants.ts";
 import {
-  SECTION_NAMES,
   type Fields,
   type SectionName,
   buildLine1,
   buildLine2,
   extractFields,
+  isSectionName,
   renderSections,
 } from "./fields.ts";
 import { maybeGc } from "./gc.ts";
@@ -30,9 +31,6 @@ import { type Drift, findRepo, getDrift, renderDrift, repoLabel } from "./vcs.ts
 
 const STATE_DIR = process.env.AGENT_HUD_STATE_DIR ?? join(homedir(), ".claude", "agent-hud-state");
 const SHARED_DB_PATH = join(STATE_DIR, "shared.db");
-
-const isSectionName = (value: string): value is SectionName =>
-  SECTION_NAMES.some((section) => section === value);
 
 const parseSectionArgs = (args: string[]): SectionName[] | undefined => {
   if (args.length === 0) return undefined;
@@ -103,8 +101,36 @@ const limitParams = (
   };
 };
 
+const resolveConfiguredLayout = (
+  cliSections: SectionName[] | undefined,
+): Promise<Layout | undefined> =>
+  cliSections === undefined ? loadLayout() : Promise.resolve(undefined);
+
+const resolveRenderNow = (
+  cliSections: SectionName[] | undefined,
+  sessionId: string | undefined,
+  contentFingerprint: string,
+): Promise<number> =>
+  cliSections === undefined
+    ? alignedNow(sessionId, contentFingerprint)
+    : Promise.resolve(Math.floor(Date.now() / MS_PER_SEC));
+
+const renderOutput = (
+  params: Parameters<typeof renderSections>[0],
+  cliSections: SectionName[] | undefined,
+  configuredLayout: Layout | undefined,
+  defaultOutput: string,
+): string => {
+  if (cliSections !== undefined) return renderSections(params, cliSections);
+  if (configuredLayout !== undefined) {
+    return configuredLayout.map((sections) => renderSections(params, sections)).join("\n");
+  }
+  return defaultOutput;
+};
+
 const main = async (): Promise<void> => {
-  const sections = parseSectionArgs(process.argv.slice(2));
+  const cliSections = parseSectionArgs(process.argv.slice(2));
+  const configuredLayout = await resolveConfiguredLayout(cliSections);
   const fields = extractFields(await parseStdin());
   const cwd = fields.projectDir ?? process.cwd();
   const repo = findRepo(cwd);
@@ -128,10 +154,11 @@ const main = async (): Promise<void> => {
     worktreeBranch: fields.worktreeBranch,
   };
   const line2 = buildLine2(line2Params);
-  const now =
-    sections === undefined
-      ? await alignedNow(sessionId, JSON.stringify({ fields, line2 }))
-      : Math.floor(Date.now() / MS_PER_SEC);
+  const now = await resolveRenderNow(
+    cliSections,
+    sessionId,
+    JSON.stringify({ fields, line2, configuredLayout }),
+  );
   const line1Params = {
     ...fields,
     ...limitParams(rateLimits),
@@ -140,11 +167,14 @@ const main = async (): Promise<void> => {
     ttlSecs: resolveTtlSecs(process.env, rateLimits),
     lastActivity,
   };
-  const output =
-    sections === undefined
-      ? `${buildLine1(line1Params)}\n${line2}`
-      : renderSections({ ...line1Params, ...line2Params }, sections);
-  process.stdout.write(output);
+  process.stdout.write(
+    renderOutput(
+      { ...line1Params, ...line2Params },
+      cliSections,
+      configuredLayout,
+      `${buildLine1(line1Params)}\n${line2}`,
+    ),
+  );
   await maybeGc(SHARED_DB_PATH, STATE_DIR, now);
 };
 

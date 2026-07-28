@@ -66,8 +66,10 @@ export interface Line2Params {
 
 export interface RenderSectionsParams extends Line1Params, Line2Params {}
 
-export const SECTION_NAMES = ["model", "context", "rate-limits", "clock", "vcs"] as const;
+const SECTION_NAMES = ["model", "context", "rate-limits", "clock", "vcs"] as const;
 export type SectionName = (typeof SECTION_NAMES)[number];
+export const isSectionName = (value: string): value is SectionName =>
+  SECTION_NAMES.some((section) => section === value);
 
 const renderModelSection = (params: Line1Params): string =>
   buildVimPrefix(params.vimMode) +

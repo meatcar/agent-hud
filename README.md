@@ -65,8 +65,27 @@ echo '{}' | agent-hud
 
 ## Custom layout
 
-Pass section names to render only those sections, in the order given. Available
-sections are `model`, `context`, `rate-limits`, `clock`, and `vcs`.
+Available sections are `model`, `context`, `rate-limits`, `clock`, and `vcs`.
+Empty sections are omitted from custom layouts.
+
+### TOML config
+
+Create `${XDG_CONFIG_HOME:-$HOME/.config}/agent-hud/config.toml`:
+
+```toml
+[layout]
+lines = [
+  ["vcs", "model", "context"],
+  ["rate-limits", "clock"],
+]
+```
+
+Each inner array is one output line. Set `AGENT_HUD_CONFIG` to use a different
+path. A missing config file is ignored, preserving the built-in two-line layout.
+
+### CLI
+
+Pass section names to render a single line in the order given:
 
 ```sh
 # One custom line, with repository information first
@@ -76,16 +95,17 @@ echo '{}' | agent-hud vcs model context
 echo '{}' | agent-hud rate-limits
 ```
 
-Calling `agent-hud` without section arguments keeps the default two-line layout.
-Empty sections are omitted from custom layouts.
+CLI sections take precedence over the TOML layout. With neither configured,
+`agent-hud` keeps its built-in two-line layout.
 
 ## Environment
 
-| Var                   | Effect                                                  |
-| --------------------- | ------------------------------------------------------- |
-| `AGENT_HUD_STATE_DIR` | State location (default `~/.claude/agent-hud-state`)    |
-| `AGENT_HUD_NO_ALIGN`  | Skip sleeping to the minute boundary on idle re-renders |
-| `NO_COLOR`            | Disable ANSI colors                                     |
+| Var                   | Effect                                                         |
+| --------------------- | -------------------------------------------------------------- |
+| `AGENT_HUD_CONFIG`    | Config path (default `$XDG_CONFIG_HOME/agent-hud/config.toml`) |
+| `AGENT_HUD_STATE_DIR` | State location (default `~/.claude/agent-hud-state`)           |
+| `AGENT_HUD_NO_ALIGN`  | Skip sleeping to the minute boundary on idle re-renders        |
+| `NO_COLOR`            | Disable ANSI colors                                            |
 
 ## Development
 
