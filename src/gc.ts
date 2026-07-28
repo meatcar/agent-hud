@@ -2,8 +2,14 @@ import type { Database } from "bun:sqlite";
 import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { GC_INTERVAL_SECS, GC_MAX_AGE_SECS, MS_PER_SEC } from "./constants.ts";
-import { getNumber } from "./json.ts";
+import { CMDCACHE_PREFIX, LEASE_FUTURE_HORIZON_SECS } from "./commands.ts";
+import {
+  CMD_CACHE_MAX_AGE_SECS,
+  GC_INTERVAL_SECS,
+  GC_MAX_AGE_SECS,
+  MS_PER_SEC,
+} from "./constants.ts";
+import { getNumber, isObject } from "./json.ts";
 import { openDb } from "./rate-limits.ts";
 
 const GC_KEY = "gc:last";
@@ -27,7 +33,53 @@ const activityAt = (val: string): number | undefined => {
   }
 };
 
-const pruneDbRows = (db: Database, cutoff: number): void => {
+const parseRow = (val: string): Record<string, unknown> | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(val);
+    return isObject(parsed) && !Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// A refresh that is still in flight must survive the sweep even if the row it
+// Reclaimed carried an ancient updatedAt: the helper is about to write to it,
+// And deleting the row would drop the lease and let a second helper spawn.
+// Only a plausibly current lease counts; an expired or far-future stamp does not.
+const hasLiveLease = (entry: Record<string, unknown>, now: number): boolean => {
+  const leaseUntil = getNumber(entry, "leaseUntil");
+  return (
+    leaseUntil !== undefined && leaseUntil > now && leaseUntil <= now + LEASE_FUTURE_HORIZON_SECS
+  );
+};
+
+// Command rows carry no session liveness, so they age out by updatedAt, except
+// While a lease is live. Invalid rows are always prunable.
+const pruneCmdRows = (
+  db: Database,
+  del: ReturnType<Database["query"]>,
+  cutoff: number,
+  now: number,
+): void => {
+  const rows = db
+    .query<{ key: string; val: string }, [string]>(
+      "SELECT k AS key, v AS val FROM kv WHERE k LIKE ?",
+    )
+    .all(`${CMDCACHE_PREFIX}%`);
+  for (const row of rows) {
+    const entry = parseRow(row.val);
+    if (entry === undefined) {
+      del.run(row.key);
+      continue;
+    }
+    const updatedAt = getNumber(entry, "updatedAt");
+    if ((updatedAt === undefined || updatedAt < cutoff) && !hasLiveLease(entry, now)) {
+      del.run(row.key);
+    }
+  }
+};
+
+const pruneDbRows = (db: Database, cutoff: number, cmdCutoff: number, now: number): void => {
   // Written by earlier versions but never rendered; reclaim the space.
   db.exec("DROP TABLE IF EXISTS cache_miss");
   const del = db.query("DELETE FROM kv WHERE k = ?");
@@ -53,6 +105,7 @@ const pruneDbRows = (db: Database, cutoff: number): void => {
       del.run(row.key);
     }
   }
+  pruneCmdRows(db, del, cmdCutoff, now);
 };
 
 // Session-start caches are keyed by session id and written once, so mtime is
@@ -89,7 +142,7 @@ export const maybeGc = async (dbPath: string, stateDir: string, now: number): Pr
     }
     // Claim the sweep up front so concurrent sessions don't repeat the work.
     db.query("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)").run(GC_KEY, String(now));
-    pruneDbRows(db, now - GC_MAX_AGE_SECS);
+    pruneDbRows(db, now - GC_MAX_AGE_SECS, now - CMD_CACHE_MAX_AGE_SECS, now);
   } catch {
     return false;
   } finally {

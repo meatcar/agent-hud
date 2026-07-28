@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
+import type { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { resolveTtlSecs } from "./cache-ttl.ts";
-import { type Layout, loadLayout } from "./config.ts";
-import { MS_PER_SEC } from "./constants.ts";
+import { HELPER_FLAG, runHelper, spawnHelpers } from "./cmd-helper.ts";
+import { type CustomPass, customPass, resolveCommands } from "./commands.ts";
+import { type AgentHudConfig, loadConfig, referencedCommandIds } from "./config.ts";
+import { MAX_CMD_SPAWNS_PER_RENDER, MS_PER_SEC } from "./constants.ts";
 import {
   type Fields,
   type SectionName,
@@ -13,6 +16,7 @@ import {
   buildLine2,
   extractFields,
   isSectionName,
+  renderLayoutLine,
   renderSections,
 } from "./fields.ts";
 import { maybeGc } from "./gc.ts";
@@ -31,6 +35,10 @@ import { type Drift, findRepo, getDrift, renderDrift, repoLabel } from "./vcs.ts
 
 const STATE_DIR = process.env.AGENT_HUD_STATE_DIR ?? join(homedir(), ".claude", "agent-hud-state");
 const SHARED_DB_PATH = join(STATE_DIR, "shared.db");
+// Captured here, not in a helper module: this is the file carrying the argv
+// Dispatch below, in every install shape (dev, bun link, bundle, Nix wrapper).
+const SELF_PATH = import.meta.path;
+const EMPTY_CUSTOM: ReadonlyMap<string, string> = new Map();
 
 const parseSectionArgs = (args: string[]): SectionName[] | undefined => {
   if (args.length === 0) return undefined;
@@ -101,10 +109,21 @@ const limitParams = (
   };
 };
 
-const resolveConfiguredLayout = (
+// A broken config must not blank the built-in sections: report it once on
+// Stderr and fall back to the default layout.
+const resolveConfig = async (
   cliSections: SectionName[] | undefined,
-): Promise<Layout | undefined> =>
-  cliSections === undefined ? loadLayout() : Promise.resolve(undefined);
+): Promise<AgentHudConfig | undefined> => {
+  if (cliSections !== undefined) return undefined;
+  try {
+    return await loadConfig();
+  } catch (error) {
+    process.stderr.write(
+      `agent-hud: ignoring config (${error instanceof Error ? error.message : String(error)})\n`,
+    );
+    return undefined;
+  }
+};
 
 const resolveRenderNow = (
   cliSections: SectionName[] | undefined,
@@ -118,19 +137,70 @@ const resolveRenderNow = (
 const renderOutput = (
   params: Parameters<typeof renderSections>[0],
   cliSections: SectionName[] | undefined,
-  configuredLayout: Layout | undefined,
+  config: AgentHudConfig | undefined,
+  custom: ReadonlyMap<string, string>,
   defaultOutput: string,
 ): string => {
   if (cliSections !== undefined) return renderSections(params, cliSections);
-  if (configuredLayout !== undefined) {
-    return configuredLayout.map((sections) => renderSections(params, sections)).join("\n");
+  if (config !== undefined) {
+    return config.layout.map((items) => renderLayoutLine(params, custom, items)).join("\n");
   }
   return defaultOutput;
 };
 
+// One shared-DB open serves both the rate-limit merge and the custom command
+// Cache pass; refresh helpers are spawned only after that handle is closed.
+// No referenced commands (every default and CLI render) means no cache query,
+// No lease, and no spawn: the pass callback is never handed to the DB open.
+const customPassFor = (
+  config: AgentHudConfig | undefined,
+  cwd: string,
+  now: number,
+): ((db: Database) => CustomPass) | undefined => {
+  const resolved =
+    config === undefined
+      ? []
+      : resolveCommands(config.commands, referencedCommandIds(config.layout), cwd);
+  if (resolved.length === 0) return undefined;
+  return (db) => customPass(db, resolved, now, MAX_CMD_SPAWNS_PER_RENDER);
+};
+
+const mergeAndRefresh = (
+  config: AgentHudConfig | undefined,
+  opts: Parameters<typeof mergeWithSharedDb>[1],
+  cwd: string,
+): ReturnType<typeof mergeWithSharedDb<CustomPass>> => {
+  const merged = mergeWithSharedDb<CustomPass>(
+    SHARED_DB_PATH,
+    opts,
+    customPassFor(config, cwd, opts.now),
+  );
+  const tasks = merged.extra?.tasks ?? [];
+  if (tasks.length > 0) {
+    spawnHelpers(SELF_PATH, SHARED_DB_PATH, tasks, cwd);
+  }
+  return merged;
+};
+
+// The rendered custom *text* enters the fingerprint, not its freshness: a
+// Background refresh producing identical text stays idle, a changed one
+// Bypasses the minute-boundary sleep.
+const contentFingerprint = (
+  fields: Fields,
+  line2: string,
+  config: AgentHudConfig | undefined,
+  custom: ReadonlyMap<string, string>,
+): string =>
+  JSON.stringify({
+    fields,
+    line2,
+    configuredLayout: config?.layout,
+    custom: [...custom.values()],
+  });
+
 const main = async (): Promise<void> => {
   const cliSections = parseSectionArgs(process.argv.slice(2));
-  const configuredLayout = await resolveConfiguredLayout(cliSections);
+  const config = await resolveConfig(cliSections);
   const fields = extractFields(await parseStdin());
   const cwd = fields.projectDir ?? process.cwd();
   const repo = findRepo(cwd);
@@ -140,14 +210,19 @@ const main = async (): Promise<void> => {
     loadSessionStart(sessionId, fields.transcriptPath, STATE_DIR),
     mkdir(STATE_DIR, { recursive: true }),
   ]);
-  const { rateLimits, lastActivity } = mergeWithSharedDb(SHARED_DB_PATH, {
-    stdin: {
-      fiveHour: makeBucket(fields.fiveHourPct, fields.fiveHourReset),
-      sevenDay: makeBucket(fields.sevenDayPct, fields.sevenDayReset),
+  const { rateLimits, lastActivity, extra } = mergeAndRefresh(
+    config,
+    {
+      stdin: {
+        fiveHour: makeBucket(fields.fiveHourPct, fields.fiveHourReset),
+        sevenDay: makeBucket(fields.sevenDayPct, fields.sevenDayReset),
+      },
+      session,
+      now: Math.floor(Date.now() / MS_PER_SEC),
     },
-    session,
-    now: Math.floor(Date.now() / MS_PER_SEC),
-  });
+    cwd,
+  );
+  const custom = extra?.outputs ?? EMPTY_CUSTOM;
   const line2Params = {
     repoOut: repoLabel(repo, cwd),
     driftOut: renderDrift(await driftPromise),
@@ -157,7 +232,7 @@ const main = async (): Promise<void> => {
   const now = await resolveRenderNow(
     cliSections,
     sessionId,
-    JSON.stringify({ fields, line2, configuredLayout }),
+    contentFingerprint(fields, line2, config, custom),
   );
   const line1Params = {
     ...fields,
@@ -171,7 +246,8 @@ const main = async (): Promise<void> => {
     renderOutput(
       { ...line1Params, ...line2Params },
       cliSections,
-      configuredLayout,
+      config,
+      custom,
       `${buildLine1(line1Params)}\n${line2}`,
     ),
   );
@@ -179,6 +255,12 @@ const main = async (): Promise<void> => {
 };
 
 if (import.meta.main) {
+  if (process.argv[2] === HELPER_FLAG) {
+    // Helper mode never prints and never reaches main(), so it cannot fall
+    // Into the clock fallback or recurse into another spawn.
+    await runHelper(process.argv[3] ?? "").catch(() => {});
+    process.exit(0);
+  }
   try {
     await main();
   } catch {

@@ -202,16 +202,24 @@ const doMerge = (db: Database, opts: SharedDbOpts): SharedDbResult => {
   return { rateLimits: merged, lastActivity };
 };
 
-export const mergeWithSharedDb = (dbPath: string, opts: SharedDbOpts): SharedDbResult => {
+// `extra` runs inside this same open so callers needing the shared DB (the
+// Custom command cache pass) do not pay for a second connection.
+export const mergeWithSharedDb = <T = undefined>(
+  dbPath: string,
+  opts: SharedDbOpts,
+  extra?: (db: Database) => T,
+): SharedDbResult & { extra: T | undefined } => {
   let db: Database | undefined;
   try {
     db = openDb(dbPath);
-    return doMerge(db, opts);
+    const merged = doMerge(db, opts);
+    return { ...merged, extra: extra?.(db) };
   } catch {
     // No DB → no timer history; report fresh activity rather than a false wilt.
     return {
       rateLimits: { version: 1, ...opts.stdin },
       lastActivity: opts.now,
+      extra: undefined,
     };
   } finally {
     db?.close();

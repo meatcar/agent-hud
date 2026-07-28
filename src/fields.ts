@@ -129,14 +129,35 @@ const sectionRenderers: Record<SectionName, (params: RenderSectionsParams) => st
 const renderSection = (params: RenderSectionsParams, section: SectionName): string =>
   sectionRenderers[section](params);
 
+// Layout items are either one of the closed built-in section names or a
+// `cmd:<id>` reference resolved from the custom command cache.
+const CUSTOM_PREFIX = "cmd:";
+export type CustomRef = `cmd:${string}`;
+export type LayoutItem = SectionName | CustomRef;
+
+export const isCustomRef = (value: string): value is CustomRef =>
+  value.startsWith(CUSTOM_PREFIX) && value.length > CUSTOM_PREFIX.length;
+
+export const customRefId = (ref: CustomRef): string => ref.slice(CUSTOM_PREFIX.length);
+
+const EMPTY_CUSTOM: ReadonlyMap<string, string> = new Map();
+
+export const renderLayoutLine = (
+  params: RenderSectionsParams,
+  custom: ReadonlyMap<string, string>,
+  items: readonly LayoutItem[],
+): string =>
+  items
+    .map((item) =>
+      isCustomRef(item) ? (custom.get(customRefId(item)) ?? "") : renderSection(params, item),
+    )
+    .filter((part) => part !== "")
+    .join(" ");
+
 export const renderSections = (
   params: RenderSectionsParams,
   sections: readonly SectionName[],
-): string =>
-  sections
-    .map((section) => renderSection(params, section))
-    .filter((section) => section !== "")
-    .join(" ");
+): string => renderLayoutLine(params, EMPTY_CUSTOM, sections);
 
 export const buildLine1 = (params: Line1Params): string =>
   `${renderModelSection(params)} ${renderContextSection(params)}  ${renderRateLimitsSection(params)}  ${renderClockGroup(new Date())}`;

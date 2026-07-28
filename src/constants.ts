@@ -24,6 +24,22 @@ export const STATE_VERSION = 1;
 export const GC_INTERVAL_SECS = SEC_PER_DAY;
 export const GC_MAX_AGE_SECS = 30 * SEC_PER_DAY;
 
+// Custom command sections
+export const DEFAULT_CMD_TIMEOUT_MS = 5_000;
+export const MAX_CMD_TIMEOUT_MS = 30_000;
+export const DEFAULT_CMD_TTL_SECS = 60;
+export const MAX_CMD_TTL_SECS = SEC_PER_DAY;
+export const CMD_LEASE_GRACE_SECS = 5;
+// Slack added on top of the longest legitimate lease before a stamp counts as
+// Implausibly future: peers' clocks differ, and a captured `now` can go stale
+// While the render waits on the scheduler or the SQLite write lock.
+export const CMD_LEASE_SKEW_SECS = 60;
+export const MAX_CMD_OUTPUT_BYTES = 256;
+export const MAX_CMD_OUTPUT_WIDTH = 80;
+export const MAX_CMD_STDOUT_BYTES = 65_536;
+export const MAX_CMD_SPAWNS_PER_RENDER = 4;
+export const CMD_CACHE_MAX_AGE_SECS = 7 * SEC_PER_DAY;
+
 // Nerd Font icons
 export const ICON_MISS = "\uDB80\uDF2A"; // 󰌪
 export const ICON_5H = "5h";

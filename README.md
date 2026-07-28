@@ -82,6 +82,52 @@ lines = [
 
 Each inner array is one output line. Set `AGENT_HUD_CONFIG` to use a different
 path. A missing config file is ignored, preserving the built-in two-line layout.
+An invalid config prints one diagnostic on stderr and falls back to the built-in
+layout.
+
+### Custom commands
+
+Define a command and reference it from a layout line as `cmd:<id>`:
+
+```toml
+[layout]
+lines = [
+  ["vcs", "model", "cmd:k8s"],
+  ["rate-limits", "clock"],
+]
+
+[commands.k8s]
+argv = [ "kubectl", "config", "current-context" ]
+timeoutMs = 3000   # optional, default 5000, 1..30000
+ttlSecs = 30       # optional, default 60, 1..86400
+```
+
+`argv` is a direct argument vector — there is no shell, so quoting and
+substitution do not apply. Commands are only run when referenced by the layout.
+
+A command inherits the full environment of the `agent-hud` process that spawned
+it, including every variable your shell or editor exported. Treat it as you
+would any other program you launch from that session.
+
+`timeoutMs` bounds the command itself: when it expires, that direct process is
+killed. Anything it launched in turn is not tracked, so a command that
+backgrounds work or spawns its own children cannot be guaranteed to have all of
+its descendants terminated. Prefer commands that finish on their own.
+
+Rendering is cache-first: a render never waits on a command. It prints the last
+cached value (nothing, the first time) and, if that value is older than
+`ttlSecs`, spawns one detached background refresh whose result is picked up by a
+later render. Cache entries are per working directory and per command
+definition, so two repositories never share a value. A command that fails or
+times out keeps its previous value until the next TTL window.
+
+Output is reduced to a single line: escape sequences, control characters, and
+Unicode formatting/separator characters (including BiDi overrides) are
+stripped, whitespace is collapsed, and the result is capped in both terminal
+width and bytes. Custom output is never colored.
+
+`AGENT_HUD_CMD_HELPER` is set in background refresh processes and must not be
+set by hand; it prevents a refresh from recursing.
 
 ### CLI
 

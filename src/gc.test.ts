@@ -4,7 +4,13 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { GC_INTERVAL_SECS, GC_MAX_AGE_SECS, SEC_PER_DAY } from "./constants.ts";
+import {
+  CMD_CACHE_MAX_AGE_SECS,
+  GC_INTERVAL_SECS,
+  GC_MAX_AGE_SECS,
+  SEC_PER_DAY,
+} from "./constants.ts";
+import { LEASE_FUTURE_HORIZON_SECS, claimLease } from "./commands.ts";
 import { maybeGc } from "./gc.ts";
 import { openDb } from "./rate-limits.ts";
 
@@ -60,6 +66,90 @@ describe("maybeGc", () => {
     seedKv("activity:corrupt", "not json");
     await maybeGc(dbPath, stateDir, NOW);
     expect(kvKeys()).toEqual(["gc:last"]);
+  });
+
+  test("prunes old command cache rows, keeps fresh ones", async () => {
+    const old = NOW - CMD_CACHE_MAX_AGE_SECS - SEC_PER_DAY;
+    seedKv(
+      "cmdcache:old:h",
+      JSON.stringify({ output: "x", updatedAt: old, leaseUntil: 0, leaseToken: "" }),
+    );
+    seedKv(
+      "cmdcache:new:h",
+      JSON.stringify({ output: "y", updatedAt: NOW - 60, leaseUntil: 0, leaseToken: "" }),
+    );
+    seedKv("cmdcache:corrupt:h", "not json");
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toEqual(["cmdcache:new:h", "gc:last"]);
+  });
+
+  test("never prunes a live lease on a row whose prior updatedAt is ancient", async () => {
+    const old = NOW - CMD_CACHE_MAX_AGE_SECS - SEC_PER_DAY;
+    seedKv(
+      "cmdcache:warm:h",
+      JSON.stringify({ output: "x", updatedAt: old, leaseUntil: NOW + 10, leaseToken: "t1" }),
+    );
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toContain("cmdcache:warm:h");
+  });
+
+  test("prunes an old row whose lease is expired or implausibly far ahead", async () => {
+    const old = NOW - CMD_CACHE_MAX_AGE_SECS - SEC_PER_DAY;
+    seedKv(
+      "cmdcache:expired:h",
+      JSON.stringify({ output: "x", updatedAt: old, leaseUntil: old + 10, leaseToken: "t1" }),
+    );
+    seedKv(
+      "cmdcache:future:h",
+      JSON.stringify({ output: "x", updatedAt: old, leaseUntil: NOW + 1_000_000, leaseToken: "t" }),
+    );
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toEqual(["gc:last"]);
+  });
+
+  test("keeps an old row whose lease sits exactly at the plausibility horizon", async () => {
+    const old = NOW - CMD_CACHE_MAX_AGE_SECS - SEC_PER_DAY;
+    seedKv(
+      "cmdcache:edge:h",
+      JSON.stringify({
+        output: "x",
+        updatedAt: old,
+        leaseUntil: NOW + LEASE_FUTURE_HORIZON_SECS,
+        leaseToken: "t1",
+      }),
+    );
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toContain("cmdcache:edge:h");
+  });
+
+  test("prunes an old row whose lease is one second past the horizon", async () => {
+    const old = NOW - CMD_CACHE_MAX_AGE_SECS - SEC_PER_DAY;
+    seedKv(
+      "cmdcache:past:h",
+      JSON.stringify({
+        output: "x",
+        updatedAt: old,
+        leaseUntil: NOW + LEASE_FUTURE_HORIZON_SECS + 1,
+        leaseToken: "t1",
+      }),
+    );
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toEqual(["gc:last"]);
+  });
+
+  test("prunes array and scalar cmdcache rows", async () => {
+    seedKv("cmdcache:arr:h", "[1,2,3]");
+    seedKv("cmdcache:num:h", "5");
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toEqual(["gc:last"]);
+  });
+
+  test("never prunes a lease claimed this instant", async () => {
+    const db = openDb(dbPath);
+    claimLease(db, "cmdcache:live:h", NOW, 10, "t1");
+    db.close();
+    await maybeGc(dbPath, stateDir, NOW);
+    expect(kvKeys()).toContain("cmdcache:live:h");
   });
 
   test("drops the vestigial cache_miss table", async () => {
