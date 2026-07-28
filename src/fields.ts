@@ -58,7 +58,23 @@ export interface Line1Params extends Fields {
   lastActivity: number | undefined;
 }
 
-export const buildLine1 = (params: Line1Params): string => {
+export interface Line2Params {
+  repoOut: string;
+  driftOut: string;
+  worktreeBranch: string | undefined;
+}
+
+export interface RenderSectionsParams extends Line1Params, Line2Params {}
+
+export const SECTION_NAMES = ["model", "context", "rate-limits", "clock", "vcs"] as const;
+export type SectionName = (typeof SECTION_NAMES)[number];
+
+const renderModelSection = (params: Line1Params): string =>
+  buildVimPrefix(params.vimMode) +
+  (params.modelId ? colors.cyan(params.modelId) : "") +
+  (params.effort ? ` ${colors.dim(params.effort)}` : "");
+
+const renderContextSection = (params: Line1Params): string => {
   const used = computeUsed(params.remainingPct, params.modelId, {
     cacheRead: params.cacheRead,
     cacheCreation: params.cacheCreation,
@@ -67,12 +83,7 @@ export const buildLine1 = (params: Line1Params): string => {
   const hitPct = cacheHitPct(params.cacheRead, params.cacheCreation, params.inputTokens);
   const cacheMissPct = hitPct !== undefined ? PERCENT - hitPct : undefined;
 
-  const hd =
-    buildVimPrefix(params.vimMode) +
-    (params.modelId ? colors.cyan(params.modelId) : "") +
-    (params.effort ? ` ${colors.dim(params.effort)}` : "");
-
-  const ctxSeg = renderCtxSegment({
+  return renderCtxSegment({
     used,
     sessionStart: params.sessionStart,
     cacheMissPct,
@@ -81,8 +92,10 @@ export const buildLine1 = (params: Line1Params): string => {
     ttlSecs: params.ttlSecs,
     lastActivity: params.lastActivity,
   });
+};
 
-  const limSeg = renderRateLimitsGroup({
+const renderRateLimitsSection = (params: Line1Params): string =>
+  renderRateLimitsGroup({
     five: {
       pct: params.fiveHourPct,
       resetAt: params.fiveHourReset,
@@ -97,19 +110,33 @@ export const buildLine1 = (params: Line1Params): string => {
     },
   });
 
-  const clkSeg = renderClockGroup(new Date());
-
-  return `${hd} ${ctxSeg}  ${limSeg}  ${clkSeg}`;
-};
-
-export interface Line2Params {
-  repoOut: string;
-  driftOut: string;
-  worktreeBranch: string | undefined;
-}
-
-export const buildLine2 = (params: Line2Params): string => {
+const renderVcsSection = (params: Line2Params): string => {
   const wt = params.worktreeBranch ? colors.dim(`[${params.worktreeBranch}]`) : "";
   const parts = [params.repoOut, wt, params.driftOut].filter((part) => part !== "");
   return parts.join(" ");
 };
+
+const sectionRenderers: Record<SectionName, (params: RenderSectionsParams) => string> = {
+  model: renderModelSection,
+  context: renderContextSection,
+  "rate-limits": renderRateLimitsSection,
+  clock: () => renderClockGroup(new Date()),
+  vcs: renderVcsSection,
+};
+
+const renderSection = (params: RenderSectionsParams, section: SectionName): string =>
+  sectionRenderers[section](params);
+
+export const renderSections = (
+  params: RenderSectionsParams,
+  sections: readonly SectionName[],
+): string =>
+  sections
+    .map((section) => renderSection(params, section))
+    .filter((section) => section !== "")
+    .join(" ");
+
+export const buildLine1 = (params: Line1Params): string =>
+  `${renderModelSection(params)} ${renderContextSection(params)}  ${renderRateLimitsSection(params)}  ${renderClockGroup(new Date())}`;
+
+export const buildLine2 = (params: Line2Params): string => renderVcsSection(params);

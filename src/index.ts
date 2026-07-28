@@ -5,7 +5,15 @@ import { basename, join } from "node:path";
 
 import { resolveTtlSecs } from "./cache-ttl.ts";
 import { MS_PER_SEC } from "./constants.ts";
-import { type Fields, buildLine1, buildLine2, extractFields } from "./fields.ts";
+import {
+  SECTION_NAMES,
+  type Fields,
+  type SectionName,
+  buildLine1,
+  buildLine2,
+  extractFields,
+  renderSections,
+} from "./fields.ts";
 import { maybeGc } from "./gc.ts";
 import { cacheHitPct, msToNextMinute } from "./helpers.ts";
 import { renderClockGroup } from "./powerline.ts";
@@ -22,6 +30,25 @@ import { type Drift, findRepo, getDrift, renderDrift, repoLabel } from "./vcs.ts
 
 const STATE_DIR = process.env.AGENT_HUD_STATE_DIR ?? join(homedir(), ".claude", "agent-hud-state");
 const SHARED_DB_PATH = join(STATE_DIR, "shared.db");
+
+const isSectionName = (value: string): value is SectionName =>
+  SECTION_NAMES.some((section) => section === value);
+
+const parseSectionArgs = (args: string[]): SectionName[] | undefined => {
+  if (args.length === 0) return undefined;
+  const unknown = args.find((arg) => !isSectionName(arg));
+  if (unknown !== undefined) throw new Error(`Unknown section: ${unknown}`);
+  return args.filter(isSectionName);
+};
+
+const parseStdin = async (): Promise<unknown> => {
+  const input = await Bun.stdin.text();
+  try {
+    return JSON.parse(input) as unknown;
+  } catch {
+    throw new Error("Invalid statusline JSON");
+  }
+};
 
 const buildSession = (
   fields: Fields,
@@ -77,7 +104,8 @@ const limitParams = (
 };
 
 const main = async (): Promise<void> => {
-  const fields = extractFields(JSON.parse(await Bun.stdin.text()));
+  const sections = parseSectionArgs(process.argv.slice(2));
+  const fields = extractFields(await parseStdin());
   const cwd = fields.projectDir ?? process.cwd();
   const repo = findRepo(cwd);
   const driftPromise = startDrift(repo);
@@ -94,21 +122,29 @@ const main = async (): Promise<void> => {
     session,
     now: Math.floor(Date.now() / MS_PER_SEC),
   });
-  const line2 = buildLine2({
+  const line2Params = {
     repoOut: repoLabel(repo, cwd),
     driftOut: renderDrift(await driftPromise),
     worktreeBranch: fields.worktreeBranch,
-  });
-  const now = await alignedNow(sessionId, JSON.stringify({ fields, line2 }));
-  const line1 = buildLine1({
+  };
+  const line2 = buildLine2(line2Params);
+  const now =
+    sections === undefined
+      ? await alignedNow(sessionId, JSON.stringify({ fields, line2 }))
+      : Math.floor(Date.now() / MS_PER_SEC);
+  const line1Params = {
     ...fields,
     ...limitParams(rateLimits),
     sessionStart,
     now,
     ttlSecs: resolveTtlSecs(process.env, rateLimits),
     lastActivity,
-  });
-  process.stdout.write(`${line1}\n${line2}`);
+  };
+  const output =
+    sections === undefined
+      ? `${buildLine1(line1Params)}\n${line2}`
+      : renderSections({ ...line1Params, ...line2Params }, sections);
+  process.stdout.write(output);
   await maybeGc(SHARED_DB_PATH, STATE_DIR, now);
 };
 

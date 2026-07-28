@@ -63,6 +63,22 @@ Try it by hand:
 echo '{}' | agent-hud
 ```
 
+## Custom layout
+
+Pass section names to render only those sections, in the order given. Available
+sections are `model`, `context`, `rate-limits`, `clock`, and `vcs`.
+
+```sh
+# One custom line, with repository information first
+echo '{}' | agent-hud vcs model context
+
+# A section for use inside another statusline script
+echo '{}' | agent-hud rate-limits
+```
+
+Calling `agent-hud` without section arguments keeps the default two-line layout.
+Empty sections are omitted from custom layouts.
+
 ## Environment
 
 | Var                   | Effect                                                  |

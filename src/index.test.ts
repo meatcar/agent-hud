@@ -5,8 +5,11 @@ import { join } from "node:path";
 
 const ENTRY = new URL("index.ts", import.meta.url).pathname;
 
-const runStatusline = async (stdin: string): Promise<{ code: number; out: string }> => {
-  const proc = Bun.spawn(["bun", ENTRY], {
+const runStatusline = async (
+  stdin: string,
+  sections: string[] = [],
+): Promise<{ code: number; out: string }> => {
+  const proc = Bun.spawn(["bun", ENTRY, ...sections], {
     stdin: Buffer.from(stdin),
     stdout: "pipe",
     stderr: "ignore",
@@ -39,5 +42,20 @@ describe("agent-hud entrypoint", () => {
     );
     expect(code).toBe(0);
     expect(out.split("\n")).toHaveLength(2);
+  });
+
+  test("section arguments render only those sections in order", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "agent-hud-proj-"));
+    const { code, out } = await runStatusline(
+      JSON.stringify({
+        workspace: { project_dir: projectDir },
+        model: { id: "claude-fable-5" },
+      }),
+      ["vcs", "model"],
+    );
+    const plain = Bun.stripANSI(out);
+    expect(code).toBe(0);
+    expect(plain).toStartWith(`${projectDir.split("/").at(-1)} fable-5`);
+    expect(plain).not.toContain("\n");
   });
 });

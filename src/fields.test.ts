@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildLine1, buildLine2, extractFields } from "./fields.ts";
+import { buildLine1, buildLine2, extractFields, renderSections } from "./fields.ts";
 
 const stripAnsi = (str: string): string => Bun.stripANSI(str);
 
@@ -53,5 +53,27 @@ describe("buildLine2", () => {
     expect(
       stripAnsi(buildLine2({ repoOut: "proj", driftOut: "", worktreeBranch: undefined })),
     ).toBe("proj");
+  });
+});
+
+describe("renderSections", () => {
+  const params = {
+    ...extractFields({ model: { id: "claude-opus-4-8" }, effort: { level: "high" } }),
+    sessionStart: undefined,
+    now: 0,
+    ttlSecs: undefined,
+    lastActivity: undefined,
+    repoOut: "proj",
+    driftOut: "main ⇡2",
+    worktreeBranch: "wt",
+  };
+
+  test("renders only the requested section", () => {
+    expect(stripAnsi(renderSections(params, ["model"]))).toBe("opus-4-8 high");
+  });
+
+  test("renders requested sections in order", () => {
+    const out = stripAnsi(renderSections(params, ["vcs", "model"]));
+    expect(out).toBe("proj [wt] main ⇡2 opus-4-8 high");
   });
 });
