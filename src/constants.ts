@@ -23,6 +23,9 @@ export const STATE_VERSION = 1;
 // Shared-state GC: sweep at most daily, drop session leftovers after 30 days.
 export const GC_INTERVAL_SECS = SEC_PER_DAY;
 export const GC_MAX_AGE_SECS = 30 * SEC_PER_DAY;
+// A peer may capture its clock shortly before the current process. Recent GC
+// Claims within this bounded future window are still authoritative.
+export const GC_CLOCK_SKEW_SECS = 60;
 
 // Custom command sections
 export const DEFAULT_CMD_TIMEOUT_MS = 5_000;

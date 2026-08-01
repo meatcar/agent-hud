@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { MAX_CMD_OUTPUT_BYTES, MAX_CMD_OUTPUT_WIDTH } from "./constants.ts";
-import { sanitizeOutput } from "./sanitize.ts";
+import { MAX_CMD_OUTPUT_BYTES, MAX_CMD_OUTPUT_WIDTH } from "../../src/constants.ts";
+import { sanitizeOutput } from "../../src/sanitize.ts";
 
 describe("sanitizeOutput", () => {
   test("strips CSI/SGR sequences", () => {
@@ -53,6 +53,17 @@ describe("sanitizeOutput", () => {
     const out = sanitizeOutput("🙂".repeat(500));
     expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(MAX_CMD_OUTPUT_BYTES);
     expect(out).toBe("🙂".repeat(out.length / "🙂".length));
+  });
+
+  test("preserves valid astral code points and drops lone surrogates", () => {
+    expect(sanitizeOutput("a\uD83D\uDE42b")).toBe("a🙂b");
+    expect(sanitizeOutput("a\uD800b")).toBe("ab");
+    expect(sanitizeOutput("a\uDC00b")).toBe("ab");
+    expect(sanitizeOutput("a\uD83Db\uDE42c\uD83D\uDE42d")).toBe("abc🙂d");
+  });
+
+  test("preserves an explicit printable replacement character", () => {
+    expect(sanitizeOutput("a\uFFFDb")).toBe("a\uFFFDb");
   });
 
   test("empty stays empty, no escapes ever survive", () => {

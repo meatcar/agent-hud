@@ -8,6 +8,10 @@ const C1_START = 0x80;
 const C1_END = 0x9f;
 const CSI_FINAL_MIN = 0x40;
 const CSI_FINAL_MAX = 0x7e;
+const HIGH_SURROGATE_START = 0xd800;
+const HIGH_SURROGATE_END = 0xdbff;
+const LOW_SURROGATE_START = 0xdc00;
+const LOW_SURROGATE_END = 0xdfff;
 const SPACE = 0x20;
 
 // OSC/DCS/SOS/PM/APC introducers: these run until a string terminator.
@@ -47,11 +51,18 @@ const skipEscape = (text: string, start: number): number => {
   const kind = text[start + 1] ?? "";
   if (STRING_INTRODUCERS.has(kind)) return skipStringSequence(text, start);
   if (kind === "[") return skipCsi(text, start);
-  return start + 2;
+  const next = text.codePointAt(start + 1);
+  return start + 1 + (next !== undefined && next > 0xffff ? 2 : 1);
 };
 
 const isDropped = (code: number): boolean =>
   (code >= C1_START && code <= C1_END) || code < SPACE || code === DEL;
+
+const isHighSurrogate = (code: number): boolean =>
+  code >= HIGH_SURROGATE_START && code <= HIGH_SURROGATE_END;
+
+const isLowSurrogate = (code: number): boolean =>
+  code >= LOW_SURROGATE_START && code <= LOW_SURROGATE_END;
 
 // Strip every escape, control, and BiDi form; tab/newline/CR become spaces so
 // The result is always a single statusline segment.
@@ -66,6 +77,15 @@ const stripUnsafe = (raw: string): string => {
       out += " ";
       i += 1;
     } else if (isDropped(code)) {
+      i += 1;
+    } else if (isHighSurrogate(code)) {
+      if (isLowSurrogate(raw.charCodeAt(i + 1))) {
+        out += raw.slice(i, i + 2);
+        i += 2;
+      } else {
+        i += 1;
+      }
+    } else if (isLowSurrogate(code)) {
       i += 1;
     } else {
       out += raw[i];

@@ -14,8 +14,9 @@ import {
   readCmdEntry,
   resolveCommands,
   writeCmdResult,
-} from "./commands.ts";
-import { openDb } from "./rate-limits.ts";
+} from "../../src/commands.ts";
+import { openDb } from "../../src/rate-limits.ts";
+import { expectCleanProcesses, runSynchronized } from "../support/process.ts";
 
 const cmd = (over: Partial<CustomCommand> = {}): CustomCommand => ({
   id: "k8s",
@@ -183,6 +184,30 @@ describe("lease and result writes", () => {
     const wins = nows.map((at, i) => claimLease(db, KEY, at, 10, `t${i}`)).filter(Boolean);
     expect(wins).toHaveLength(1);
   });
+
+  test("exactly one independent process claims and later reclaims a lease", async () => {
+    const dbPath = join(dir, "shared.db");
+    const claim = async (at: number, prefix: string) => {
+      const results = await runSynchronized(
+        dir,
+        Array.from({ length: 16 }, (_, index) => [
+          "lease",
+          dbPath,
+          KEY,
+          String(at),
+          "10",
+          `${prefix}${index}`,
+        ]),
+      );
+      expectCleanProcesses(results);
+      expect(results.filter((result) => result.out.trim() === "true")).toHaveLength(1);
+      expect(results.filter((result) => result.out.trim() === "false")).toHaveLength(15);
+    };
+
+    await claim(NOW, "first-");
+    await claim(NOW + 11, "second-");
+    expect(readCmdEntry(db, KEY)?.leaseToken).toStartWith("second-");
+  }, 30_000);
 
   test("readCmdEntry rejects array and scalar rows", () => {
     for (const raw of ["[1,2,3]", "5", '"hello"', "null", "true", "not json"]) {

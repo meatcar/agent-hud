@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { intrinsicWidthAround, layoutLabelsAround } from "./label-layout.ts";
+import { intrinsicWidthAround, layoutLabelsAround } from "../../src/label-layout.ts";
 
 describe("layoutLabelsAround — basic", () => {
   test("empty labels returns spaces of correct width", () => {

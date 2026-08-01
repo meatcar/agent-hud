@@ -4,21 +4,23 @@ import {
   buildLine1,
   buildLine2,
   customRefId,
-  extractFields,
   isCustomRef,
   renderLayoutLine,
   renderSections,
-} from "./fields.ts";
+} from "../../src/fields.ts";
+import { MS_PER_SEC } from "../../src/constants.ts";
+import { renderClockGroup } from "../../src/powerline.ts";
+import { adaptClaudeCodeStatus } from "../../src/protocols/claude-code.ts";
 
 const stripAnsi = (str: string): string => Bun.stripANSI(str);
 
-describe("extractFields effort", () => {
+describe("Claude status effort rendering", () => {
   test("extracts effort.level", () => {
-    expect(extractFields({ effort: { level: "high" } }).effort).toBe("high");
+    expect(adaptClaudeCodeStatus({ effort: { level: "high" } }).effort).toBe("high");
   });
 
   test("undefined when absent", () => {
-    expect(extractFields({}).effort).toBeUndefined();
+    expect(adaptClaudeCodeStatus({}).effort).toBeUndefined();
   });
 });
 
@@ -33,7 +35,10 @@ describe("buildLine1 effort", () => {
   test("renders effort after model name", () => {
     const out = stripAnsi(
       buildLine1({
-        ...extractFields({ model: { id: "claude-opus-4-8" }, effort: { level: "high" } }),
+        ...adaptClaudeCodeStatus({
+          model: { id: "claude-opus-4-8" },
+          effort: { level: "high" },
+        }),
         ...base,
       }),
     );
@@ -45,7 +50,10 @@ describe("buildLine1 effort", () => {
 
   test("omits effort when absent", () => {
     const out = stripAnsi(
-      buildLine1({ ...extractFields({ model: { id: "claude-opus-4-8" } }), ...base }),
+      buildLine1({
+        ...adaptClaudeCodeStatus({ model: { id: "claude-opus-4-8" } }),
+        ...base,
+      }),
     );
     expect(out).not.toContain("high");
   });
@@ -66,7 +74,10 @@ describe("buildLine2", () => {
 
 describe("renderSections", () => {
   const params = {
-    ...extractFields({ model: { id: "claude-opus-4-8" }, effort: { level: "high" } }),
+    ...adaptClaudeCodeStatus({
+      model: { id: "claude-opus-4-8" },
+      effort: { level: "high" },
+    }),
     sessionStart: undefined,
     now: 0,
     ttlSecs: undefined,
@@ -86,6 +97,26 @@ describe("renderSections", () => {
   });
 });
 
+describe("clock rendering", () => {
+  const params = {
+    ...adaptClaudeCodeStatus({}),
+    sessionStart: undefined,
+    ttlSecs: undefined,
+    lastActivity: undefined,
+    repoOut: "",
+    driftOut: "",
+    worktreeBranch: undefined,
+  };
+
+  test("uses the injected epoch seconds for section and default clocks", () => {
+    const now = 1_800_000_000;
+    const expected = renderClockGroup(new Date(now * MS_PER_SEC));
+    expect(renderSections({ ...params, now }, ["clock"])).toBe(expected);
+    expect(buildLine1({ ...params, now })).toEndWith(expected);
+    expect(renderSections({ ...params, now: now + 3600 }, ["clock"])).not.toBe(expected);
+  });
+});
+
 describe("isCustomRef", () => {
   test("accepts cmd: refs with an id", () => {
     expect(isCustomRef("cmd:k8s")).toBe(true);
@@ -102,7 +133,7 @@ describe("isCustomRef", () => {
 
 describe("renderLayoutLine", () => {
   const params = {
-    ...extractFields({ model: { id: "claude-opus-4-8" } }),
+    ...adaptClaudeCodeStatus({ model: { id: "claude-opus-4-8" } }),
     sessionStart: undefined,
     now: 0,
     ttlSecs: undefined,

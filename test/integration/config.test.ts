@@ -1,10 +1,28 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig, parseConfig, referencedCommandIds, resolveConfigPath } from "./config.ts";
-import { DEFAULT_CMD_TIMEOUT_MS, DEFAULT_CMD_TTL_SECS } from "./constants.ts";
+import {
+  loadConfig,
+  parseConfig,
+  referencedCommandIds,
+  resolveConfigPath,
+} from "../../src/config.ts";
+import { DEFAULT_CMD_TIMEOUT_MS, DEFAULT_CMD_TTL_SECS } from "../../src/constants.ts";
+
+const tempRoots = new Set<string>();
+
+const tempDir = (): string => {
+  const path = mkdtempSync(join(tmpdir(), "agent-hud-config-"));
+  tempRoots.add(path);
+  return path;
+};
+
+afterEach(() => {
+  for (const root of tempRoots) rmSync(root, { recursive: true, force: true });
+  tempRoots.clear();
+});
 
 describe("parseConfig", () => {
   test("parses a multi-line layout", () => {
@@ -159,7 +177,7 @@ describe("resolveConfigPath", () => {
 
 describe("loadConfig", () => {
   test("loads the path selected by AGENT_HUD_CONFIG", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-hud-config-"));
+    const dir = tempDir();
     const path = join(dir, "nested", "config.toml");
     mkdirSync(join(dir, "nested"));
     writeFileSync(
@@ -182,7 +200,7 @@ lines = [
   });
 
   test("malformed config throws", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-hud-config-"));
+    const dir = tempDir();
     const path = join(dir, "config.toml");
     writeFileSync(path, '[layout]\nlines = [ ["weather"] ]\n');
     // Bun types the matcher as void even though it returns a promise; the

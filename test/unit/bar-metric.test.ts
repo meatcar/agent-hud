@@ -7,7 +7,7 @@ import {
   optimalRendering,
   paintedEighths,
   totalError,
-} from "./bar-metric.ts";
+} from "../../src/bar-metric.ts";
 
 const currentError = (pct: number, edgePct: number, width: number): number =>
   totalError(

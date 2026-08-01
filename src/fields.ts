@@ -3,53 +3,17 @@ import colors from "./colors.ts";
 import {
   FIVE_HOUR_SECS,
   MODEL_1M_MARKER,
+  MS_PER_SEC,
   MODEL_1M_MARK_PCT,
   PERCENT,
   SEVEN_DAY_SECS,
 } from "./constants.ts";
 import { cacheHitPct, computeUsed } from "./helpers.ts";
-import { getNumber, getString, getStringOrNumber } from "./json.ts";
 import { renderClockGroup, renderCtxSegment, renderRateLimitsGroup } from "./powerline.ts";
 import { buildVimPrefix } from "./render.ts";
+import type { StatusSnapshot } from "./status.ts";
 
-export interface Fields {
-  projectDir: string | undefined;
-  modelId: string | undefined;
-  effort: string | undefined;
-  vimMode: string | undefined;
-  transcriptPath: string | undefined;
-  worktreeBranch: string | undefined;
-  remainingPct: number | undefined;
-  cacheRead: number | undefined;
-  cacheCreation: number | undefined;
-  inputTokens: number | undefined;
-  fiveHourPct: number | undefined;
-  fiveHourReset: string | number | undefined;
-  sevenDayPct: number | undefined;
-  sevenDayReset: string | number | undefined;
-}
-
-export const extractFields = (parsed: unknown): Fields => ({
-  projectDir: getString(parsed, "workspace", "project_dir"),
-  modelId: getString(parsed, "model", "id")?.replace(/^claude-/, ""),
-  effort: getString(parsed, "effort", "level"),
-  vimMode: getString(parsed, "vim", "mode"),
-  transcriptPath: getString(parsed, "transcript_path") || undefined,
-  worktreeBranch: getString(parsed, "worktree", "branch"),
-  remainingPct: getNumber(parsed, "context_window", "remaining_percentage"),
-  cacheRead: getNumber(parsed, "context_window", "current_usage", "cache_read_input_tokens"),
-  cacheCreation: getNumber(
-    parsed,
-    "context_window",
-    "current_usage",
-    "cache_creation_input_tokens",
-  ),
-  inputTokens: getNumber(parsed, "context_window", "current_usage", "input_tokens"),
-  fiveHourPct: getNumber(parsed, "rate_limits", "five_hour", "used_percentage"),
-  fiveHourReset: getStringOrNumber(parsed, "rate_limits", "five_hour", "resets_at"),
-  sevenDayPct: getNumber(parsed, "rate_limits", "seven_day", "used_percentage"),
-  sevenDayReset: getStringOrNumber(parsed, "rate_limits", "seven_day", "resets_at"),
-});
+export type Fields = StatusSnapshot;
 
 export interface Line1Params extends Fields {
   sessionStart: number | undefined;
@@ -122,7 +86,7 @@ const sectionRenderers: Record<SectionName, (params: RenderSectionsParams) => st
   model: renderModelSection,
   context: renderContextSection,
   "rate-limits": renderRateLimitsSection,
-  clock: () => renderClockGroup(new Date()),
+  clock: (params) => renderClockGroup(new Date(params.now * MS_PER_SEC)),
   vcs: renderVcsSection,
 };
 
@@ -160,6 +124,6 @@ export const renderSections = (
 ): string => renderLayoutLine(params, EMPTY_CUSTOM, sections);
 
 export const buildLine1 = (params: Line1Params): string =>
-  `${renderModelSection(params)} ${renderContextSection(params)}  ${renderRateLimitsSection(params)}  ${renderClockGroup(new Date())}`;
+  `${renderModelSection(params)} ${renderContextSection(params)}  ${renderRateLimitsSection(params)}  ${renderClockGroup(new Date(params.now * MS_PER_SEC))}`;
 
 export const buildLine2 = (params: Line2Params): string => renderVcsSection(params);

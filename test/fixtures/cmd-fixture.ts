@@ -1,9 +1,16 @@
 #!/usr/bin/env bun
 // Test-only fixture driven entirely by argv, so command tests depend on
 // Process.execPath alone — never on a shell or on coreutils being installed.
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 
-const [mode, a, b] = process.argv.slice(2);
+const [mode, a, b, c] = process.argv.slice(2);
+
+const waitForFile = async (path: string, deadline: number): Promise<void> => {
+  if (existsSync(path)) return;
+  if (Date.now() >= deadline) process.exit(4);
+  await Bun.sleep(10);
+  return waitForFile(path, deadline);
+};
 
 if (mode === "echo") {
   process.stdout.write(`${a ?? ""}\n`);
@@ -21,9 +28,14 @@ if (mode === "echo") {
 } else if (mode === "fail") {
   process.stdout.write("partial\n");
   process.exit(3);
-} else if (mode === "count") {
+} else if (mode === "count" || mode === "count-fail") {
   appendFileSync(a ?? "", "ran\n");
   process.stdout.write(`${b ?? ""}\n`);
+  if (mode === "count-fail") process.exit(3);
+} else if (mode === "gate") {
+  writeFileSync(a ?? "", "started\n");
+  await waitForFile(b ?? "", Date.now() + 10_000);
+  process.stdout.write(`${c ?? "released"}\n`);
 } else {
   process.exit(2);
 }

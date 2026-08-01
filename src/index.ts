@@ -2,7 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 import { resolveTtlSecs } from "./cache-ttl.ts";
 import { HELPER_FLAG, runHelper, spawnHelpers } from "./cmd-helper.ts";
@@ -10,26 +10,19 @@ import { type CustomPass, customPass, resolveCommands } from "./commands.ts";
 import { type AgentHudConfig, loadConfig, referencedCommandIds } from "./config.ts";
 import { MAX_CMD_SPAWNS_PER_RENDER, MS_PER_SEC } from "./constants.ts";
 import {
-  type Fields,
-  type SectionName,
-  buildLine1,
-  buildLine2,
-  extractFields,
-  isSectionName,
-  renderLayoutLine,
-  renderSections,
-} from "./fields.ts";
+  contentFingerprint,
+  deriveSession,
+  flattenRateLimits,
+  parseSectionArgs,
+  parseStatusJson,
+  selectOutput,
+} from "./core.ts";
+import { type SectionName, buildLine1, buildLine2 } from "./fields.ts";
 import { maybeGc } from "./gc.ts";
-import { cacheHitPct, msToNextMinute } from "./helpers.ts";
+import { msToNextMinute } from "./helpers.ts";
 import { renderClockGroup } from "./powerline.ts";
-import {
-  type Bucket,
-  type RateLimitsV1,
-  type SessionInfo,
-  makeBucket,
-  mergeWithSharedDb,
-  renderChanged,
-} from "./rate-limits.ts";
+import { makeBucket, mergeWithSharedDb, renderChanged } from "./rate-limits.ts";
+import { adaptClaudeCodeStatus } from "./protocols/claude-code.ts";
 import { loadSessionStart } from "./session.ts";
 import { type Drift, findRepo, getDrift, renderDrift, repoLabel } from "./vcs.ts";
 
@@ -40,32 +33,7 @@ const SHARED_DB_PATH = join(STATE_DIR, "shared.db");
 const SELF_PATH = import.meta.path;
 const EMPTY_CUSTOM: ReadonlyMap<string, string> = new Map();
 
-const parseSectionArgs = (args: string[]): SectionName[] | undefined => {
-  if (args.length === 0) return undefined;
-  const unknown = args.find((arg) => !isSectionName(arg));
-  if (unknown !== undefined) throw new Error(`Unknown section: ${unknown}`);
-  return args.filter(isSectionName);
-};
-
-const parseStdin = async (): Promise<unknown> => {
-  const input = await Bun.stdin.text();
-  try {
-    return JSON.parse(input) as unknown;
-  } catch {
-    throw new Error("Invalid statusline JSON");
-  }
-};
-
-const buildSession = (
-  fields: Fields,
-): { sessionId: string | undefined; session: SessionInfo | undefined } => {
-  const sessionId = fields.transcriptPath ? basename(fields.transcriptPath, ".jsonl") : undefined;
-  const hitPct = cacheHitPct(fields.cacheRead, fields.cacheCreation, fields.inputTokens);
-  const fingerprint = `${fields.cacheRead}:${fields.cacheCreation}:${fields.inputTokens}`;
-  const session =
-    sessionId !== undefined && hitPct !== undefined ? { sessionId, fingerprint } : undefined;
-  return { sessionId, session };
-};
+const parseStdin = async (): Promise<unknown> => parseStatusJson(await Bun.stdin.text());
 
 // Idle re-renders (refreshInterval ticks with no content change) sleep to the
 // Next minute boundary before printing, so time-derived labels — clock, TTL
@@ -84,30 +52,6 @@ const alignedNow = async (sessionId: string | undefined, contentFp: string): Pro
 
 const startDrift = (repo: ReturnType<typeof findRepo>): Promise<Drift | undefined> =>
   repo !== undefined ? getDrift(repo) : Promise.resolve(undefined);
-
-const bucketFields = (
-  bucket: Bucket | undefined,
-): { pct: number | undefined; resetsAt: number | undefined } => ({
-  pct: bucket?.pct,
-  resetsAt: bucket?.resetsAt,
-});
-
-// Flatten merged buckets into the line-1 param names
-const limitParams = (
-  rateLimits: RateLimitsV1,
-): Pick<
-  Parameters<typeof buildLine1>[0],
-  "fiveHourPct" | "fiveHourReset" | "sevenDayPct" | "sevenDayReset"
-> => {
-  const fiveHour = bucketFields(rateLimits.fiveHour);
-  const sevenDay = bucketFields(rateLimits.sevenDay);
-  return {
-    fiveHourPct: fiveHour.pct,
-    fiveHourReset: fiveHour.resetsAt,
-    sevenDayPct: sevenDay.pct,
-    sevenDayReset: sevenDay.resetsAt,
-  };
-};
 
 // A broken config must not blank the built-in sections: report it once on
 // Stderr and fall back to the default layout.
@@ -128,25 +72,11 @@ const resolveConfig = async (
 const resolveRenderNow = (
   cliSections: SectionName[] | undefined,
   sessionId: string | undefined,
-  contentFingerprint: string,
+  fingerprint: string,
 ): Promise<number> =>
   cliSections === undefined
-    ? alignedNow(sessionId, contentFingerprint)
+    ? alignedNow(sessionId, fingerprint)
     : Promise.resolve(Math.floor(Date.now() / MS_PER_SEC));
-
-const renderOutput = (
-  params: Parameters<typeof renderSections>[0],
-  cliSections: SectionName[] | undefined,
-  config: AgentHudConfig | undefined,
-  custom: ReadonlyMap<string, string>,
-  defaultOutput: string,
-): string => {
-  if (cliSections !== undefined) return renderSections(params, cliSections);
-  if (config !== undefined) {
-    return config.layout.map((items) => renderLayoutLine(params, custom, items)).join("\n");
-  }
-  return defaultOutput;
-};
 
 // One shared-DB open serves both the rate-limit merge and the custom command
 // Cache pass; refresh helpers are spawned only after that handle is closed.
@@ -182,30 +112,14 @@ const mergeAndRefresh = (
   return merged;
 };
 
-// The rendered custom *text* enters the fingerprint, not its freshness: a
-// Background refresh producing identical text stays idle, a changed one
-// Bypasses the minute-boundary sleep.
-const contentFingerprint = (
-  fields: Fields,
-  line2: string,
-  config: AgentHudConfig | undefined,
-  custom: ReadonlyMap<string, string>,
-): string =>
-  JSON.stringify({
-    fields,
-    line2,
-    configuredLayout: config?.layout,
-    custom: [...custom.values()],
-  });
-
 const main = async (): Promise<void> => {
   const cliSections = parseSectionArgs(process.argv.slice(2));
   const config = await resolveConfig(cliSections);
-  const fields = extractFields(await parseStdin());
+  const fields = adaptClaudeCodeStatus(await parseStdin());
   const cwd = fields.projectDir ?? process.cwd();
   const repo = findRepo(cwd);
   const driftPromise = startDrift(repo);
-  const { sessionId, session } = buildSession(fields);
+  const { sessionId, session } = deriveSession(fields);
   const [sessionStart] = await Promise.all([
     loadSessionStart(sessionId, fields.transcriptPath, STATE_DIR),
     mkdir(STATE_DIR, { recursive: true }),
@@ -236,14 +150,14 @@ const main = async (): Promise<void> => {
   );
   const line1Params = {
     ...fields,
-    ...limitParams(rateLimits),
+    ...flattenRateLimits(rateLimits),
     sessionStart,
     now,
     ttlSecs: resolveTtlSecs(process.env, rateLimits),
     lastActivity,
   };
   process.stdout.write(
-    renderOutput(
+    selectOutput(
       { ...line1Params, ...line2Params },
       cliSections,
       config,
@@ -265,6 +179,7 @@ if (import.meta.main) {
     await main();
   } catch {
     // A statusline must always print something; fall back to the bare clock.
-    process.stdout.write(renderClockGroup(new Date()));
+    const now = Math.floor(Date.now() / MS_PER_SEC);
+    process.stdout.write(renderClockGroup(new Date(now * MS_PER_SEC)));
   }
 }

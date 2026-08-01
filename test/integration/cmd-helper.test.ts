@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   HELPER_ENV,
@@ -10,12 +11,12 @@ import {
   runHelper,
   runUserCommand,
   spawnHelpers,
-} from "./cmd-helper.ts";
-import type { HelperPayload } from "./cmd-helper.ts";
-import { type CmdCacheEntry, claimLease, readCmdEntry } from "./commands.ts";
-import { MAX_CMD_STDOUT_BYTES, MAX_CMD_TIMEOUT_MS, MS_PER_SEC } from "./constants.ts";
-import { openDb } from "./rate-limits.ts";
-import { fixtureArgv as fixture, pollCachedOutput } from "./test-support.ts";
+} from "../../src/cmd-helper.ts";
+import type { HelperPayload } from "../../src/cmd-helper.ts";
+import { type CmdCacheEntry, claimLease, readCmdEntry } from "../../src/commands.ts";
+import { MAX_CMD_STDOUT_BYTES, MAX_CMD_TIMEOUT_MS, MS_PER_SEC } from "../../src/constants.ts";
+import { openDb } from "../../src/rate-limits.ts";
+import { fixtureArgv as fixture, pollCachedOutput } from "../support/commands.ts";
 
 const PAYLOAD: HelperPayload = {
   v: 1,
@@ -93,11 +94,6 @@ describe("runUserCommand", () => {
     const started = Date.now();
     expect(await runUserCommand(fixture("sleep", "10000"), tmpdir(), 300)).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(5000);
-  });
-
-  test("bounds stdout", async () => {
-    const out = await runUserCommand(fixture("big", "1048576"), tmpdir(), 10_000);
-    expect(out === undefined || out.length <= MAX_CMD_STDOUT_BYTES).toBe(true);
   });
 
   test("an over-cap command returns the same bounded prefix every run", async () => {
@@ -236,7 +232,7 @@ describe("spawnHelpers", () => {
     const db = openDb(dbPath);
     claimLease(db, key, nowSecs(), 30, "t1");
     db.close();
-    const selfPath = new URL("index.ts", import.meta.url).pathname;
+    const selfPath = fileURLToPath(new URL("../../src/index.ts", import.meta.url));
     const task = {
       id: "k8s",
       key,

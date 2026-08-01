@@ -8,16 +8,25 @@ import {
   type Bucket,
   mergeBucket,
   mergeRateLimits,
+  mergeWithSharedDb,
   openDb,
   readRateLimits,
   renderChanged,
   touchActivity,
   writeRateLimits,
-} from "./rate-limits.ts";
+} from "../../src/rate-limits.ts";
+import { expectCleanProcesses, runSynchronized } from "../support/process.ts";
 
 const NOW = 1_000_000;
 const LIVE = NOW + 3600;
 const EXPIRED = NOW - 1;
+const WINNER_POSITIONS = [0, 8, 15];
+
+const insertAt = <T>(items: readonly T[], position: number, winner: T): T[] => {
+  const result = [...items];
+  result.splice(position, 0, winner);
+  return result;
+};
 
 describe("mergeBucket", () => {
   test("both undefined → undefined", () => {
@@ -129,11 +138,13 @@ describe("mergeRateLimits", () => {
 
 describe("rate-limits DB helpers", () => {
   let tmpDir: string;
+  let dbPath: string;
   let db: Database;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "agent-hud-test-"));
-    db = openDb(join(tmpDir, "shared.db"));
+    dbPath = join(tmpDir, "shared.db");
+    db = openDb(dbPath);
   });
 
   afterEach(() => {
@@ -176,27 +187,138 @@ describe("rate-limits DB helpers", () => {
     badDb?.close();
   });
 
-  test("5 parallel writers, final row is valid JSON", async () => {
-    const dbPath = join(tmpDir, "concurrent.db");
-    const script = `
-      import { openDb, writeRateLimits } from ${JSON.stringify(import.meta.resolve("./rate-limits.ts"))};
-      const db = openDb(${JSON.stringify(dbPath)});
-      writeRateLimits(db, { version: 1, fiveHour: { pct: ${Math.floor(Math.random() * 100)}, resetsAt: ${LIVE} }, sevenDay: undefined });
-      db.close();
-    `;
-    await Promise.all(
-      Array.from(
-        { length: 5 },
-        async () =>
-          Bun.spawn(["bun", "--eval", script], { stdout: "ignore", stderr: "ignore" }).exited,
-      ),
+  test("an extra callback failure rolls back the shared transaction", () => {
+    const rollbackPath = join(tmpDir, "rollback.db");
+    const result = mergeWithSharedDb(
+      rollbackPath,
+      {
+        stdin: { fiveHour: { pct: 42, resetsAt: LIVE }, sevenDay: undefined },
+        session: undefined,
+        now: NOW,
+      },
+      (shared) => {
+        shared.query("INSERT INTO kv (k, v) VALUES (?, ?)").run("extra", "written");
+        throw new Error("boom");
+      },
     );
-    const finalDb = openDb(dbPath);
-    const row = readRateLimits(finalDb);
-    finalDb.close();
-    expect(row).not.toBeUndefined();
-    expect(row?.version).toBe(1);
-    expect(typeof row?.fiveHour?.pct).toBe("number");
+    expect(result).toEqual({
+      rateLimits: {
+        version: 1,
+        fiveHour: { pct: 42, resetsAt: LIVE },
+        sevenDay: undefined,
+      },
+      lastActivity: NOW,
+      extra: undefined,
+    });
+    const check = openDb(rollbackPath);
+    expect(readRateLimits(check)).toBeUndefined();
+    expect(check.query("SELECT v FROM kv WHERE k = 'extra'").get()).toBeNull();
+    check.close();
+  });
+
+  test.each(WINNER_POSITIONS)(
+    "long-budget synchronized same-window merges preserve a winner placed at index %d",
+    async (winnerPosition) => {
+      const path = join(tmpDir, `same-window-${winnerPosition}.db`);
+      const pcts = insertAt(
+        Array.from({ length: 15 }, (_, index) => index + 1),
+        winnerPosition,
+        16,
+      );
+      const initialized = openDb(path);
+      initialized.close();
+      const results = await runSynchronized(
+        tmpDir,
+        pcts.map((pct) => ["merge", path, String(NOW), String(pct), String(LIVE), "", ""]),
+      );
+      expectCleanProcesses(results);
+      const finalDb = openDb(path);
+      expect(readRateLimits(finalDb)?.fiveHour).toEqual({ pct: 16, resetsAt: LIVE });
+      finalDb.close();
+    },
+    30_000,
+  );
+
+  test.each([
+    [0, 1],
+    [7, 8],
+    [14, 15],
+  ])(
+    "long-budget complementary bucket winners survive at indices %d and %d",
+    async (fiveWinnerPosition, sevenWinnerPosition) => {
+      const path = join(tmpDir, `complementary-${fiveWinnerPosition}.db`);
+      const inputs = Array.from({ length: 16 }, (_, index): string[] =>
+        index < 8
+          ? ["merge", path, String(NOW), String(index + 1), String(LIVE), "", ""]
+          : ["merge", path, String(NOW), "", "", String(index - 7), String(LIVE + 100)],
+      );
+      inputs[fiveWinnerPosition] = ["merge", path, String(NOW), "15", String(LIVE), "", ""];
+      inputs[sevenWinnerPosition] = ["merge", path, String(NOW), "", "", "16", String(LIVE + 100)];
+      const initialized = openDb(path);
+      initialized.close();
+      const results = await runSynchronized(tmpDir, inputs);
+      expectCleanProcesses(results);
+      const finalDb = openDb(path);
+      expect(readRateLimits(finalDb)).toEqual({
+        version: 1,
+        fiveHour: { pct: 15, resetsAt: LIVE },
+        sevenDay: { pct: 16, resetsAt: LIVE + 100 },
+      });
+      finalDb.close();
+    },
+    30_000,
+  );
+
+  test.each(WINNER_POSITIONS)(
+    "long-budget latest-reset winner survives when placed at index %d",
+    async (winnerPosition) => {
+      const path = join(tmpDir, `latest-window-${winnerPosition}.db`);
+      const inputs = insertAt(
+        Array.from({ length: 15 }, (_, index) => [
+          "merge",
+          path,
+          String(NOW),
+          String(100 - index),
+          String(LIVE + index),
+          "",
+          "",
+        ]),
+        winnerPosition,
+        ["merge", path, String(NOW), "85", String(LIVE + 15), "", ""],
+      );
+      const initialized = openDb(path);
+      initialized.close();
+      const results = await runSynchronized(tmpDir, inputs);
+      expectCleanProcesses(results);
+      const finalDb = openDb(path);
+      expect(readRateLimits(finalDb)?.fiveHour).toEqual({ pct: 85, resetsAt: LIVE + 15 });
+      finalDb.close();
+    },
+    30_000,
+  );
+
+  test("render-path 250ms DB budget may fail open within a sub-second writer wait", () => {
+    const lock = openDb(dbPath);
+    lock.exec("BEGIN IMMEDIATE");
+    try {
+      const mergeStarted = performance.now();
+      const merged = mergeWithSharedDb(dbPath, {
+        stdin: { fiveHour: { pct: 42, resetsAt: LIVE }, sevenDay: undefined },
+        session: undefined,
+        now: NOW,
+      });
+      const mergeElapsed = performance.now() - mergeStarted;
+      expect(merged.rateLimits.fiveHour).toEqual({ pct: 42, resetsAt: LIVE });
+      expect(merged.extra).toBeUndefined();
+      expect(mergeElapsed).toBeLessThan(1000);
+
+      const renderStarted = performance.now();
+      expect(renderChanged(dbPath, "locked", "content")).toBe(true);
+      expect(performance.now() - renderStarted).toBeLessThan(1000);
+    } finally {
+      lock.exec("ROLLBACK");
+      lock.close();
+    }
   });
 });
 

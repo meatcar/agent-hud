@@ -5,20 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
-        with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('**/flake.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
-      # devshell provides bun + jj (vcs drift tests spawn jj)
-      - run: nix develop -c bun install --frozen-lockfile
-      - run: nix develop -c bun run check
-      - run: nix develop -c bun test
+  quality:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/quality.yml

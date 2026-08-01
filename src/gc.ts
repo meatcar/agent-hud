@@ -5,12 +5,13 @@ import { join } from "node:path";
 import { CMDCACHE_PREFIX, LEASE_FUTURE_HORIZON_SECS } from "./commands.ts";
 import {
   CMD_CACHE_MAX_AGE_SECS,
+  GC_CLOCK_SKEW_SECS,
   GC_INTERVAL_SECS,
   GC_MAX_AGE_SECS,
   MS_PER_SEC,
 } from "./constants.ts";
 import { getNumber, isObject } from "./json.ts";
-import { openDb } from "./rate-limits.ts";
+import { openRenderDb } from "./rate-limits.ts";
 
 const GC_KEY = "gc:last";
 const ACTIVITY_PREFIX = "activity:";
@@ -23,6 +24,28 @@ const lastGcAt = (db: Database): number | undefined => {
   }
   const at = Number(row.val);
   return Number.isFinite(at) ? at : undefined;
+};
+
+const claimGc = (db: Database, now: number): boolean => {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const last = lastGcAt(db);
+    const plausible = last !== undefined && last <= now + GC_CLOCK_SKEW_SECS;
+    if (last !== undefined && plausible && now - last < GC_INTERVAL_SECS) {
+      db.exec("COMMIT");
+      return false;
+    }
+    db.query("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)").run(GC_KEY, String(now));
+    db.exec("COMMIT");
+    return true;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // The connection may already have aborted the transaction.
+    }
+    throw error;
+  }
 };
 
 const activityAt = (val: string): number | undefined => {
@@ -55,26 +78,23 @@ const hasLiveLease = (entry: Record<string, unknown>, now: number): boolean => {
 
 // Command rows carry no session liveness, so they age out by updatedAt, except
 // While a lease is live. Invalid rows are always prunable.
-const pruneCmdRows = (
-  db: Database,
-  del: ReturnType<Database["query"]>,
-  cutoff: number,
-  now: number,
-): void => {
+const pruneCmdRows = (db: Database, cutoff: number, now: number): void => {
   const rows = db
     .query<{ key: string; val: string }, [string]>(
-      "SELECT k AS key, v AS val FROM kv WHERE k LIKE ?",
+      "SELECT k AS key, v AS val FROM kv WHERE k LIKE ? ORDER BY k",
     )
     .all(`${CMDCACHE_PREFIX}%`);
+  const delSelected = db.query("DELETE FROM kv WHERE k = ? AND v = ?");
   for (const row of rows) {
     const entry = parseRow(row.val);
-    if (entry === undefined) {
-      del.run(row.key);
-      continue;
-    }
-    const updatedAt = getNumber(entry, "updatedAt");
-    if ((updatedAt === undefined || updatedAt < cutoff) && !hasLiveLease(entry, now)) {
-      del.run(row.key);
+    const updatedAt = entry === undefined ? undefined : getNumber(entry, "updatedAt");
+    if (
+      entry === undefined ||
+      ((updatedAt === undefined || updatedAt < cutoff) && !hasLiveLease(entry, now))
+    ) {
+      // A helper may claim a lease after this sweep's SELECT. Match the exact
+      // Selected value so that newer output or lease state survives the prune.
+      delSelected.run(row.key, row.val);
     }
   }
 };
@@ -82,30 +102,36 @@ const pruneCmdRows = (
 const pruneDbRows = (db: Database, cutoff: number, cmdCutoff: number, now: number): void => {
   // Written by earlier versions but never rendered; reclaim the space.
   db.exec("DROP TABLE IF EXISTS cache_miss");
-  const del = db.query("DELETE FROM kv WHERE k = ?");
+  const delSelected = db.query("DELETE FROM kv WHERE k = ? AND v = ?");
+  const exists = db.query("SELECT 1 FROM kv WHERE k = ?");
   const live = new Set<string>();
   const activities = db
     .query<{ key: string; val: string }, [string]>(
-      "SELECT k AS key, v AS val FROM kv WHERE k LIKE ?",
+      "SELECT k AS key, v AS val FROM kv WHERE k LIKE ? ORDER BY k",
     )
     .all(`${ACTIVITY_PREFIX}%`);
   for (const row of activities) {
+    const sessionId = row.key.slice(ACTIVITY_PREFIX.length);
     const at = activityAt(row.val);
-    if (at === undefined || at < cutoff) {
-      del.run(row.key);
-    } else {
-      live.add(row.key.slice(ACTIVITY_PREFIX.length));
+    if (at !== undefined && at >= cutoff) {
+      live.add(sessionId);
+    } else if (delSelected.run(row.key, row.val).changes === 0 && exists.get(row.key) !== null) {
+      // A changed value after the materialized scan makes this session live for
+      // This sweep, so its render row cannot be deleted from stale evidence.
+      live.add(sessionId);
     }
   }
   const renders = db
-    .query<{ key: string }, [string]>("SELECT k AS key FROM kv WHERE k LIKE ?")
+    .query<{ key: string; val: string }, [string]>(
+      "SELECT k AS key, v AS val FROM kv WHERE k LIKE ? ORDER BY k",
+    )
     .all(`${RENDER_PREFIX}%`);
   for (const row of renders) {
     if (!live.has(row.key.slice(RENDER_PREFIX.length))) {
-      del.run(row.key);
+      delSelected.run(row.key, row.val);
     }
   }
-  pruneCmdRows(db, del, cmdCutoff, now);
+  pruneCmdRows(db, cmdCutoff, now);
 };
 
 // Session-start caches are keyed by session id and written once, so mtime is
@@ -135,13 +161,9 @@ const pruneStateFiles = async (stateDir: string, cutoff: number): Promise<void> 
 export const maybeGc = async (dbPath: string, stateDir: string, now: number): Promise<boolean> => {
   let db: Database | undefined;
   try {
-    db = openDb(dbPath);
-    const last = lastGcAt(db);
-    if (last !== undefined && last <= now && now - last < GC_INTERVAL_SECS) {
-      return false;
-    }
-    // Claim the sweep up front so concurrent sessions don't repeat the work.
-    db.query("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)").run(GC_KEY, String(now));
+    db = openRenderDb(dbPath);
+    // Claim the sweep before pruning so concurrent sessions do not repeat it.
+    if (!claimGc(db, now)) return false;
     pruneDbRows(db, now - GC_MAX_AGE_SECS, now - CMD_CACHE_MAX_AGE_SECS, now);
   } catch {
     return false;

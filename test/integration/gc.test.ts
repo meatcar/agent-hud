@@ -6,13 +6,15 @@ import { join } from "node:path";
 
 import {
   CMD_CACHE_MAX_AGE_SECS,
+  GC_CLOCK_SKEW_SECS,
   GC_INTERVAL_SECS,
   GC_MAX_AGE_SECS,
   SEC_PER_DAY,
-} from "./constants.ts";
-import { LEASE_FUTURE_HORIZON_SECS, claimLease } from "./commands.ts";
-import { maybeGc } from "./gc.ts";
-import { openDb } from "./rate-limits.ts";
+} from "../../src/constants.ts";
+import { LEASE_FUTURE_HORIZON_SECS, claimLease, readCmdEntry } from "../../src/commands.ts";
+import { maybeGc } from "../../src/gc.ts";
+import { openDb } from "../../src/rate-limits.ts";
+import { expectCleanProcesses, runSynchronized } from "../support/process.ts";
 
 const NOW = 1_800_000_000;
 const OLD = NOW - GC_MAX_AGE_SECS - SEC_PER_DAY;
@@ -36,6 +38,15 @@ describe("maybeGc", () => {
       .map((row) => row.key);
     db.close();
     return keys;
+  };
+
+  const kvValue = (key: string): string | undefined => {
+    const db = new Database(dbPath, { readonly: true });
+    const value = db
+      .query<{ val: string }, [string]>("SELECT v AS val FROM kv WHERE k = ?")
+      .get(key)?.val;
+    db.close();
+    return value;
   };
 
   beforeEach(() => {
@@ -66,6 +77,56 @@ describe("maybeGc", () => {
     seedKv("activity:corrupt", "not json");
     await maybeGc(dbPath, stateDir, NOW);
     expect(kvKeys()).toEqual(["gc:last"]);
+  });
+
+  test("a refreshed activity after the scan survives and keeps its render row", async () => {
+    const stale = JSON.stringify({ fp: "old", at: OLD });
+    const refreshed = JSON.stringify({ fp: "new", at: FRESH });
+    const db = openDb(dbPath);
+    const insert = db.query("INSERT INTO kv (k, v) VALUES (?, ?)");
+    insert.run("activity:00-sentinel", stale);
+    insert.run("activity:zz-target", stale);
+    insert.run("render:zz-target", "rendered");
+    db.exec("CREATE TABLE gc_test_updates (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+    db.query("INSERT INTO gc_test_updates (k, v) VALUES (?, ?)").run(
+      "activity:zz-target",
+      refreshed,
+    );
+    db.exec(`CREATE TRIGGER refresh_activity_after_sentinel
+      AFTER DELETE ON kv WHEN OLD.k = 'activity:00-sentinel'
+      BEGIN
+        UPDATE kv SET v = (SELECT v FROM gc_test_updates WHERE k = 'activity:zz-target')
+        WHERE k = 'activity:zz-target';
+      END`);
+    db.close();
+
+    expect(await maybeGc(dbPath, stateDir, NOW)).toBe(true);
+    expect(kvValue("activity:zz-target")).toBe(refreshed);
+    expect(kvValue("render:zz-target")).toBe("rendered");
+    expect(kvKeys()).not.toContain("activity:00-sentinel");
+  });
+
+  test("a refreshed render after the scan survives compare-and-swap pruning", async () => {
+    const db = openDb(dbPath);
+    const insert = db.query("INSERT INTO kv (k, v) VALUES (?, ?)");
+    insert.run("render:00-sentinel", "old-sentinel");
+    insert.run("render:zz-target", "old-target");
+    db.exec("CREATE TABLE gc_test_updates (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+    db.query("INSERT INTO gc_test_updates (k, v) VALUES (?, ?)").run(
+      "render:zz-target",
+      "new-target",
+    );
+    db.exec(`CREATE TRIGGER refresh_render_after_sentinel
+      AFTER DELETE ON kv WHEN OLD.k = 'render:00-sentinel'
+      BEGIN
+        UPDATE kv SET v = (SELECT v FROM gc_test_updates WHERE k = 'render:zz-target')
+        WHERE k = 'render:zz-target';
+      END`);
+    db.close();
+
+    expect(await maybeGc(dbPath, stateDir, NOW)).toBe(true);
+    expect(kvValue("render:zz-target")).toBe("new-target");
+    expect(kvKeys()).not.toContain("render:00-sentinel");
   });
 
   test("prunes old command cache rows, keeps fresh ones", async () => {
@@ -152,6 +213,37 @@ describe("maybeGc", () => {
     expect(kvKeys()).toContain("cmdcache:live:h");
   });
 
+  test("a lease claimed after the command scan survives compare-and-swap pruning", async () => {
+    const sentinel = "cmdcache:race:00-sentinel";
+    const target = "cmdcache:race:zz-target";
+    const stale = JSON.stringify({ output: "old", updatedAt: OLD, leaseUntil: 0, leaseToken: "" });
+    const leased = JSON.stringify({
+      output: "old",
+      updatedAt: NOW,
+      leaseUntil: NOW + 10,
+      leaseToken: "race-token",
+    });
+    const db = openDb(dbPath);
+    const insert = db.query("INSERT INTO kv (k, v) VALUES (?, ?)");
+    insert.run(sentinel, stale);
+    insert.run(target, stale);
+    db.exec("CREATE TABLE gc_test_updates (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+    db.query("INSERT INTO gc_test_updates (k, v) VALUES (?, ?)").run(target, leased);
+    db.exec(`CREATE TRIGGER lease_command_after_sentinel
+      AFTER DELETE ON kv WHEN OLD.k = 'cmdcache:race:00-sentinel'
+      BEGIN
+        UPDATE kv SET v = (SELECT v FROM gc_test_updates WHERE k = 'cmdcache:race:zz-target')
+        WHERE k = 'cmdcache:race:zz-target';
+      END`);
+    db.close();
+
+    expect(await maybeGc(dbPath, stateDir, NOW)).toBe(true);
+    const check = openDb(dbPath);
+    expect(readCmdEntry(check, target)?.leaseToken).toBe("race-token");
+    check.close();
+    expect(kvKeys()).not.toContain(sentinel);
+  });
+
   test("drops the vestigial cache_miss table", async () => {
     const db = openDb(dbPath);
     db.exec("CREATE TABLE IF NOT EXISTS cache_miss (session_id TEXT, miss_pct REAL)");
@@ -178,6 +270,28 @@ describe("maybeGc", () => {
     expect(await Bun.file(dbPath).exists()).toBe(true);
   });
 
+  test.each([0, 1, 2])(
+    "exactly one synchronized caller claims an eligible sweep (round %d)",
+    async (round) => {
+      const initialized = openDb(dbPath);
+      initialized.close();
+      const results = await runSynchronized(
+        stateDir,
+        Array.from({ length: 16 }, (_, index) => [
+          "gc",
+          dbPath,
+          stateDir,
+          String(round === 0 || index % 2 === 0 ? NOW : NOW + 1),
+        ]),
+        30_000,
+      );
+      expectCleanProcesses(results);
+      expect(results.filter((result) => result.out.trim() === "true")).toHaveLength(1);
+      expect(results.filter((result) => result.out.trim() === "false")).toHaveLength(15);
+    },
+    60_000,
+  );
+
   test("no-op within the interval", async () => {
     expect(await maybeGc(dbPath, stateDir, NOW)).toBe(true);
     seedKv("activity:old", JSON.stringify({ fp: "x", at: OLD }));
@@ -192,7 +306,17 @@ describe("maybeGc", () => {
     expect(kvKeys()).not.toContain("activity:old");
   });
 
-  test("future gc:last stamp is treated as stale", async () => {
+  test("a modest future gc:last stamp remains authoritative", async () => {
+    seedKv("gc:last", String(NOW + GC_CLOCK_SKEW_SECS));
+    expect(await maybeGc(dbPath, stateDir, NOW)).toBe(false);
+  });
+
+  test("a gc:last stamp beyond the clock-skew grace is reclaimed", async () => {
+    seedKv("gc:last", String(NOW + GC_CLOCK_SKEW_SECS + 1));
+    expect(await maybeGc(dbPath, stateDir, NOW)).toBe(true);
+  });
+
+  test("an implausibly far-future gc:last stamp is treated as stale", async () => {
     seedKv("gc:last", String(NOW + GC_INTERVAL_SECS * 10));
     expect(await maybeGc(dbPath, stateDir, NOW)).toBe(true);
   });

@@ -1,7 +1,7 @@
 # agent-hud
 
-Fast two-line statusline for [Claude Code](https://code.claude.com). One bun
-process, zero dependencies.
+Fast two-line statusline for [Claude Code](https://code.claude.com). One
+foreground Bun process per render, zero runtime dependencies.
 
 - Shows the model and its reasoning effort
 - Shows how much context is left and the cache hit rate
@@ -154,6 +154,9 @@ CLI sections take precedence over the TOML layout. With neither configured,
 | `NO_COLOR`            | Disable ANSI colors                                            |
 
 ## Development
+
+See the [project status](https://github.com/meatcar/agent-hud/blob/main/STATUS.md)
+for the current delivery checklist, validation state, and follow-up integrations.
 
 ```sh
 bun test
