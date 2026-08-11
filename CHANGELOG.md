@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/meatcar/agent-hud/compare/agent-hud-v0.2.0...agent-hud-v0.3.0) (2026-08-11)
+
+
+### Features
+
+* add configurable statusline layouts ([e6f4655](https://github.com/meatcar/agent-hud/commit/e6f4655313709921a3479d0486dc648c0003d645))
+* **config:** support cached command sections ([2132be3](https://github.com/meatcar/agent-hud/commit/2132be3dd501d9b8cf063ec47791192c0bbf1645))
+* **config:** support TOML layouts ([369219c](https://github.com/meatcar/agent-hud/commit/369219ce4bc3ec0f29cb946fe469db450df109a5))
+* **layout:** allow sections to be arranged ([0c497d9](https://github.com/meatcar/agent-hud/commit/0c497d9826a8dc01725eba6e566b2b427e344aad))
+
+
+### Bug Fixes
+
+* **build:** avoid duplicate bundled shebang ([2c54617](https://github.com/meatcar/agent-hud/commit/2c54617d5b8d13359d453056aef1251f00e86928))
+
 ## [0.2.0](https://github.com/meatcar/agent-hud/compare/agent-hud-v0.1.0...agent-hud-v0.2.0) (2026-07-18)
 
 
