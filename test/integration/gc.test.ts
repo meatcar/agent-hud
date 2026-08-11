@@ -52,10 +52,35 @@ describe("maybeGc", () => {
   beforeEach(() => {
     stateDir = mkdtempSync(join(tmpdir(), "agent-hud-gc-"));
     dbPath = join(stateDir, "shared.db");
+    const initialized = openDb(dbPath);
+    initialized.close();
   });
 
   afterEach(() => {
     rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  test("missing schema fails open without initializer side effects", async () => {
+    const rawPath = join(stateDir, "uninitialized.db");
+    expect(await maybeGc(rawPath, stateDir, NOW)).toBe(false);
+    const rawDb = new Database(rawPath);
+    expect(
+      rawDb.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'").get(),
+    ).toBeNull();
+    rawDb.close();
+  });
+
+  test("fails open promptly beneath a held writer", async () => {
+    const lock = openDb(dbPath);
+    lock.exec("BEGIN IMMEDIATE");
+    try {
+      const started = performance.now();
+      expect(await maybeGc(dbPath, stateDir, NOW)).toBe(false);
+      expect(performance.now() - started).toBeLessThan(500);
+    } finally {
+      lock.exec("ROLLBACK");
+      lock.close();
+    }
   });
 
   test("prunes stale activity rows, keeps fresh ones", async () => {

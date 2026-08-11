@@ -100,6 +100,12 @@ export const openDb = (
 
 export const openRenderDb = (path: string): Database => openDb(path, RENDER_DB_BUSY_TIMEOUT_MS);
 
+export const openImmediateRenderDb = (path: string): Database => {
+  const db = new Database(path, { create: true });
+  db.exec("PRAGMA busy_timeout=0");
+  return db;
+};
+
 const RATE_LIMITS_KEY = "rate_limits";
 
 export const readRateLimits = (db: Database): RateLimitsV1 | undefined => {
@@ -171,7 +177,7 @@ export const touchActivity = (
 export const renderChanged = (dbPath: string, sessionId: string, fingerprint: string): boolean => {
   let db: Database | undefined;
   try {
-    db = openRenderDb(dbPath);
+    db = openImmediateRenderDb(dbPath);
     const key = `render:${sessionId}`;
     const row = db.query<{ val: string }, [string]>("SELECT v AS val FROM kv WHERE k=?").get(key);
     if (row?.val === fingerprint) {
@@ -257,8 +263,9 @@ const mergeWithSharedDbUsing = <T>(
 };
 
 // `extra` runs inside this same open so callers needing the shared DB (the
-// Custom command cache pass) do not pay for a second connection. Runtime
-// Renders deliberately use the short 250ms budget and may fail open under load.
+// Custom command cache pass) do not pay for a second connection. Transactional
+// Render work gets a short lock budget so one concurrent render can claim
+// Refresh work; the independent fingerprint write uses a no-wait connection.
 export const mergeWithSharedDb = <T = undefined>(
   dbPath: string,
   opts: SharedDbOpts,
