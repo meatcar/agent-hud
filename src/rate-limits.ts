@@ -77,14 +77,28 @@ export const makeBucket = (
   return { pct, resetsAt };
 };
 
-export const openDb = (path: string): Database => {
+const DEFAULT_DB_BUSY_TIMEOUT_MS = 5_000;
+const RENDER_DB_BUSY_TIMEOUT_MS = 250;
+type DbBusyTimeoutMs = typeof DEFAULT_DB_BUSY_TIMEOUT_MS | typeof RENDER_DB_BUSY_TIMEOUT_MS;
+
+export const openDb = (
+  path: string,
+  busyTimeoutMs: DbBusyTimeoutMs = DEFAULT_DB_BUSY_TIMEOUT_MS,
+): Database => {
   const db = new Database(path, { create: true });
-  db.exec("PRAGMA busy_timeout=5000");
-  db.exec("PRAGMA journal_mode=WAL");
+  db.exec(
+    busyTimeoutMs === RENDER_DB_BUSY_TIMEOUT_MS
+      ? "PRAGMA busy_timeout=250"
+      : "PRAGMA busy_timeout=5000",
+  );
+  const mode = db.query<{ journal_mode: string }, []>("PRAGMA journal_mode").get()?.journal_mode;
+  if (mode !== "wal") db.exec("PRAGMA journal_mode=WAL");
   db.exec("PRAGMA synchronous=NORMAL");
   db.exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
   return db;
 };
+
+export const openRenderDb = (path: string): Database => openDb(path, RENDER_DB_BUSY_TIMEOUT_MS);
 
 const RATE_LIMITS_KEY = "rate_limits";
 
@@ -157,7 +171,7 @@ export const touchActivity = (
 export const renderChanged = (dbPath: string, sessionId: string, fingerprint: string): boolean => {
   let db: Database | undefined;
   try {
-    db = openDb(dbPath);
+    db = openRenderDb(dbPath);
     const key = `render:${sessionId}`;
     const row = db.query<{ val: string }, [string]>("SELECT v AS val FROM kv WHERE k=?").get(key);
     if (row?.val === fingerprint) {
@@ -202,18 +216,60 @@ const doMerge = (db: Database, opts: SharedDbOpts): SharedDbResult => {
   return { rateLimits: merged, lastActivity };
 };
 
-export const mergeWithSharedDb = (dbPath: string, opts: SharedDbOpts): SharedDbResult => {
+type SharedDbOpener = (path: string) => Database;
+
+const mergeWithSharedDbUsing = <T>(
+  dbPath: string,
+  opts: SharedDbOpts,
+  extra: ((db: Database) => T) | undefined,
+  openSharedDb: SharedDbOpener,
+): SharedDbResult & { extra: T | undefined } => {
   let db: Database | undefined;
+  let transactionOpen = false;
   try {
-    db = openDb(dbPath);
-    return doMerge(db, opts);
+    db = openSharedDb(dbPath);
+    // Serialize the semantic read/merge/write transition, not just its final
+    // Statement, so concurrent statuslines cannot overwrite a newer bucket.
+    db.exec("BEGIN IMMEDIATE");
+    transactionOpen = true;
+    const merged = doMerge(db, opts);
+    const result = { ...merged, extra: extra?.(db) };
+    db.exec("COMMIT");
+    transactionOpen = false;
+    return result;
   } catch {
+    if (transactionOpen) {
+      try {
+        db?.exec("ROLLBACK");
+      } catch {
+        // The connection may already have aborted the transaction.
+      }
+    }
     // No DB → no timer history; report fresh activity rather than a false wilt.
     return {
       rateLimits: { version: 1, ...opts.stdin },
       lastActivity: opts.now,
+      extra: undefined,
     };
   } finally {
     db?.close();
   }
 };
+
+// `extra` runs inside this same open so callers needing the shared DB (the
+// Custom command cache pass) do not pay for a second connection. Runtime
+// Renders deliberately use the short 250ms budget and may fail open under load.
+export const mergeWithSharedDb = <T = undefined>(
+  dbPath: string,
+  opts: SharedDbOpts,
+  extra?: (db: Database) => T,
+): SharedDbResult & { extra: T | undefined } =>
+  mergeWithSharedDbUsing(dbPath, opts, extra, openRenderDb);
+
+// Direct semantic contention checks use the long 5s budget so scheduler load
+// Cannot discard an otherwise valid input before the serialized transaction.
+export const mergeWithSharedDbLongBudget = <T = undefined>(
+  dbPath: string,
+  opts: SharedDbOpts,
+  extra?: (db: Database) => T,
+): SharedDbResult & { extra: T | undefined } => mergeWithSharedDbUsing(dbPath, opts, extra, openDb);

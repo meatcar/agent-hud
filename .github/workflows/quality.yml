@@ -1,0 +1,148 @@
+name: quality
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref or commit to validate
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  check:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+      - name: Install development dependencies
+        run: nix develop -c bun install --frozen-lockfile
+      - name: Lint and format check
+        run: nix develop -c bun run check
+
+  test:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+      - name: Install development dependencies
+        run: nix develop -c bun install --frozen-lockfile
+      - name: Run sequential source tests
+        run: nix develop -c bun test
+
+  stress:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+      - name: Install development dependencies
+        run: nix develop -c bun install --frozen-lockfile
+      - name: Run deterministic randomized stress
+        run: nix develop -c bun run test:stress
+
+  coverage:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+      - name: Install development dependencies
+        run: nix develop -c bun install --frozen-lockfile
+      - name: Audit runtime LCOV presence and executed entrypoint scenarios
+        run: nix develop -c bun run coverage
+
+  package:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+      - name: Install development dependencies
+        run: nix develop -c bun install --frozen-lockfile
+      - name: Validate tar headers, offline install, and executable artifacts
+        run: nix develop -c bun run validate:package
+
+  nix:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+      - name: Evaluate native flake checks
+        run: nix flake check --no-update-lock-file
+      - name: Build native Nix wrapper
+        run: nix build --no-link --print-out-paths .#default > "$RUNNER_TEMP/agent-hud-out"
+      - name: Smoke native Nix wrapper
+        run: nix develop -c bun scripts/validate-package.ts --bin "$(cat "$RUNNER_TEMP/agent-hud-out")/bin/agent-hud"

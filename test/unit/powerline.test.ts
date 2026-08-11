@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { ICON_5H, ICON_7D, ICON_MISS, MISS_CRIT, MISS_WARN } from "./constants.ts";
+import { ICON_5H, ICON_7D, ICON_MISS, MISS_CRIT, MISS_WARN } from "../../src/constants.ts";
 import {
   BLUE,
   LIGHTBLUE,
@@ -17,7 +17,7 @@ import {
   renderClockGroup,
   renderCtxSegment,
   renderRateLimitsGroup,
-} from "./powerline.ts";
+} from "../../src/powerline.ts";
 
 // Minimal tones that don't apply ANSI — makes structural assertions easy.
 const Fill: Tone = makeTone(

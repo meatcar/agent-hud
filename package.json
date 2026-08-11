@@ -18,10 +18,13 @@
   },
   "scripts": {
     "test": "bun test",
+    "test:stress": "bun test --randomize --seed=20260418 --rerun-each=3",
+    "coverage": "bun scripts/validate-coverage.ts",
+    "validate:package": "bun scripts/validate-package.ts",
     "lint": "oxlint && fallow",
     "format": "treefmt -q",
     "check": "bun run lint && bun run format --ci",
-    "build": "bun build --target=bun --banner='#!/usr/bin/env bun' --outfile=dist/agent-hud.ts src/index.ts",
+    "build": "bun build --target=bun --outfile=dist/agent-hud.ts src/index.ts",
     "deploy": "bun run build && cp dist/agent-hud.ts $HOME/.claude/agent-hud.ts",
     "screenshots": "bash scripts/screenshots.sh",
     "bench": "bash bench/run.sh",
@@ -33,9 +36,7 @@
     "fallow": "^2.66.2",
     "oxfmt": "^0.48.0",
     "oxlint": "^1.63.0",
-    "oxlint-tsgolint": "^0.22.1"
-  },
-  "peerDependencies": {
-    "typescript": "^6.0.3"
+    "oxlint-tsgolint": "^0.22.1",
+    "typescript": "5.9.3"
   }
 }

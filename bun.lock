@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agent-hud",
+      "name": "@meatcar/agent-hud",
       "devDependencies": {
         "@tsconfig/bun": "^1.0.10",
         "@types/bun": "latest",
@@ -11,9 +11,7 @@
         "oxfmt": "^0.48.0",
         "oxlint": "^1.63.0",
         "oxlint-tsgolint": "^0.22.1",
-      },
-      "peerDependencies": {
-        "typescript": "^6.0.3",
+        "typescript": "5.9.3",
       },
     },
   },

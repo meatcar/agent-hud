@@ -7,7 +7,7 @@ import {
   formatDuration,
   msToNextMinute,
   toEpoch,
-} from "./helpers.ts";
+} from "../../src/helpers.ts";
 
 describe("msToNextMinute", () => {
   test("mid-minute returns remainder to boundary", () => {

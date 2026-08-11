@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadSessionStart } from "./session.ts";
+import { loadSessionStart } from "../../src/session.ts";
 
 const ISO = "2026-01-02T03:04:05.000Z";
 const EPOCH = Math.floor(Date.parse(ISO) / 1000);

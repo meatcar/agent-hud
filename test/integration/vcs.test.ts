@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,11 +11,22 @@ import {
   renderDrift,
   repoLabel,
   run,
-} from "./vcs.ts";
+} from "../../src/vcs.ts";
+import { fixtureArgv } from "../support/commands.ts";
 
 const stripAnsi = (str: string): string => Bun.stripANSI(str);
+const tempRoots = new Set<string>();
 
-const tmp = (): string => mkdtempSync(join(tmpdir(), "agent-hud-vcs-"));
+const tmp = (): string => {
+  const path = mkdtempSync(join(tmpdir(), "agent-hud-vcs-"));
+  tempRoots.add(path);
+  return path;
+};
+
+afterEach(() => {
+  for (const root of tempRoots) rmSync(root, { recursive: true, force: true });
+  tempRoots.clear();
+});
 
 describe("findRepo", () => {
   test("finds .git dir at root", () => {
@@ -122,7 +133,7 @@ describe("repoLabel", () => {
 
 describe("run", () => {
   test("captures stdout on success", async () => {
-    expect(await run(["echo", "ok"], ".")).toBe("ok");
+    expect(await run(fixtureArgv("echo", "ok"), ".")).toBe("ok");
   });
 
   test("missing binary → undefined", async () => {
@@ -130,12 +141,12 @@ describe("run", () => {
   });
 
   test("nonzero exit → undefined", async () => {
-    expect(await run(["false"], ".")).toBeUndefined();
+    expect(await run(fixtureArgv("fail"), ".")).toBeUndefined();
   });
 
   test("timeout kills and returns undefined", async () => {
     const started = Date.now();
-    expect(await run(["sleep", "5"], ".", 100)).toBeUndefined();
+    expect(await run(fixtureArgv("sleep", "5000"), ".", 100)).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(2000);
   });
 });
@@ -151,8 +162,9 @@ const git = async (cwd: string, ...argv: string[]): Promise<void> => {
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_SYSTEM: "/dev/null",
   };
-  const proc = Bun.spawn(["git", ...argv], { cwd, env, stdout: "ignore", stderr: "ignore" });
-  await proc.exited;
+  const proc = Bun.spawn(["git", ...argv], { cwd, env, stdout: "ignore", stderr: "pipe" });
+  const [code, err] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+  if (code !== 0) throw new Error(`git ${argv.join(" ")}: ${err || `exit ${code}`}`);
 };
 
 describe("getDrift git", () => {
@@ -179,8 +191,9 @@ describe.skipIf(Bun.which("jj") === null)("getDrift jj", () => {
   test("counts commits past trunk() with nearest bookmark", async () => {
     const root = tmp();
     const jj = async (...argv: string[]) => {
-      const proc = Bun.spawn(["jj", ...argv], { cwd: root, stdout: "ignore", stderr: "ignore" });
-      await proc.exited;
+      const proc = Bun.spawn(["jj", ...argv], { cwd: root, stdout: "ignore", stderr: "pipe" });
+      const [code, err] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+      if (code !== 0) throw new Error(`jj ${argv.join(" ")}: ${err || `exit ${code}`}`);
     };
     await jj("git", "init");
     await jj("describe", "-m", "one");

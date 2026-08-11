@@ -1,47 +1,60 @@
-name: release-please
+name: publish
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to validate and publish
+        required: true
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.tag.outputs.sha }}
+      tag: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - name: Resolve immutable release commit
+        id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
   quality:
+    needs: resolve
     permissions:
       contents: read
     uses: ./.github/workflows/quality.yml
-
-  release-please:
-    needs: quality
-    permissions:
-      contents: write
-      pull-requests: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
-        id: release
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
 
   npm-publish:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [resolve, quality]
     permissions:
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      RELEASE_SHA: ${{ github.sha }}
-      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+      RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 0
       - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
         with:
@@ -53,7 +66,7 @@ jobs:
           restore-prefixes-first-match: nix-${{ runner.os }}-
       - name: Install development dependencies
         run: nix develop -c bun install --frozen-lockfile
-      - name: Verify automatic release identity
+      - name: Verify immutable retry identity
         run: |
           set -euo pipefail
           version="$(nix develop -c bun -e 'const manifest = await Bun.file("package.json").json(); process.stdout.write(manifest.version)')"

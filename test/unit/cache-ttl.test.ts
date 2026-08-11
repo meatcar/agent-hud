@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveTtlSecs } from "./cache-ttl.ts";
-import { TTL_1H_SECS, TTL_5M_SECS } from "./constants.ts";
-import type { RateLimitsV1 } from "./rate-limits.ts";
+import { resolveTtlSecs } from "../../src/cache-ttl.ts";
+import { TTL_1H_SECS, TTL_5M_SECS } from "../../src/constants.ts";
+import type { RateLimitsV1 } from "../../src/rate-limits.ts";
 
 const NO_LIMITS: RateLimitsV1 = { version: 1, fiveHour: undefined, sevenDay: undefined };
 const SUB_LIMITS: RateLimitsV1 = {
