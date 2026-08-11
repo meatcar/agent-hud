@@ -3,11 +3,11 @@
 ## Current delivery
 
 The implementation for [issue #7](https://github.com/meatcar/agent-hud/issues/7)
-is under review in [PR #17](https://github.com/meatcar/agent-hud/pull/17) and
-passes the local and hosted quality stacks. It includes positional and TOML
-layouts, cache-first custom command sections, protocol-neutral status
-composition, concurrency fixes, deterministic process/property testing, and
-exact package/Nix/release validation.
+was merged through [PR #17](https://github.com/meatcar/agent-hud/pull/17), with
+the macOS SQLite deadline fix in [PR #19](https://github.com/meatcar/agent-hud/pull/19).
+The validated [v0.3.0 GitHub release](https://github.com/meatcar/agent-hud/releases/tag/agent-hud-v0.3.0)
+is available. npm publication is blocked only on repository credentials tracked
+in [issue #21](https://github.com/meatcar/agent-hud/issues/21).
 
 ### Completed
 
@@ -29,14 +29,17 @@ exact package/Nix/release validation.
 
 - [x] Frozen dependency install.
 - [x] Lint, formatting, LSP, and structural diagnostics.
-- [x] Unit and integration suite: 447 tests.
-- [x] Deterministic stress suite: 1,341 tests.
+- [x] Unit and integration suite: 453 tests.
+- [x] Deterministic stress suite: 1,359 tests.
 - [x] Runtime coverage manifest: 20/20 executable modules.
 - [x] Seven executable-entrypoint scenarios.
 - [x] Local Linux package, Nix, and detached-refresh validation.
 - [x] Publish a review branch and open a PR linked to issue #7.
 - [x] Pass the hosted Ubuntu and macOS quality matrix.
-- [ ] Merge and let the exact-artifact release path run.
+- [x] Merge the feature and release-blocking fix PRs.
+- [x] Create the immutable `agent-hud-v0.3.0` GitHub release.
+- [x] Revalidate the exact release commit and npm tarball in the retry workflow.
+- [ ] Publish `@meatcar/agent-hud@0.3.0` after configuring `NPM_TOKEN` ([#21](https://github.com/meatcar/agent-hud/issues/21)).
 
 ## Follow-up integrations
 
@@ -57,7 +60,7 @@ until real upstream contracts demonstrate a need.
 
 - This file is the durable high-level delivery checklist.
 - GitHub issues own actionable follow-up work and acceptance criteria.
-- The implementation PR owns review discussion and hosted CI status.
+- GitHub PRs own review discussion and hosted CI status.
 - `.github/workflows/quality.yml` is the machine-verifiable delivery gate.
 - Pi tasks and subagent artifacts are execution detail, not the project source of
   truth.
