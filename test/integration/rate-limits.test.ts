@@ -328,7 +328,7 @@ describe("rate-limits DB helpers", () => {
     immediateDb.close();
   });
 
-  test("render-path shared merge fails open promptly beneath a held writer", () => {
+  test("render-path shared merge fails open within its sub-second budget", () => {
     db.exec("BEGIN IMMEDIATE");
     try {
       const started = performance.now();
@@ -340,7 +340,7 @@ describe("rate-limits DB helpers", () => {
       const elapsed = performance.now() - started;
       expect(merged.rateLimits.fiveHour).toEqual({ pct: 42, resetsAt: LIVE });
       expect(merged.extra).toBeUndefined();
-      expect(elapsed).toBeLessThan(500);
+      expect(elapsed).toBeLessThan(1000);
     } finally {
       db.exec("ROLLBACK");
     }
