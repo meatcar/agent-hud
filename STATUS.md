@@ -3,8 +3,9 @@
 ## Current delivery
 
 The implementation for [issue #7](https://github.com/meatcar/agent-hud/issues/7)
-is complete and passes the full local quality stack. It includes positional and
-TOML layouts, cache-first custom command sections, protocol-neutral status
+is under review in [PR #17](https://github.com/meatcar/agent-hud/pull/17) and
+passes the local and hosted quality stacks. It includes positional and TOML
+layouts, cache-first custom command sections, protocol-neutral status
 composition, concurrency fixes, deterministic process/property testing, and
 exact package/Nix/release validation.
 
@@ -33,8 +34,8 @@ exact package/Nix/release validation.
 - [x] Runtime coverage manifest: 20/20 executable modules.
 - [x] Seven executable-entrypoint scenarios.
 - [x] Local Linux package, Nix, and detached-refresh validation.
-- [ ] Publish a review branch and open a PR linked to issue #7.
-- [ ] Pass the hosted Ubuntu and macOS quality matrix.
+- [x] Publish a review branch and open a PR linked to issue #7.
+- [x] Pass the hosted Ubuntu and macOS quality matrix.
 - [ ] Merge and let the exact-artifact release path run.
 
 ## Follow-up integrations
