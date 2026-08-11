@@ -10,6 +10,8 @@ import {
   mergeRateLimits,
   mergeWithSharedDb,
   openDb,
+  openImmediateRenderDb,
+  openRenderDb,
   readRateLimits,
   renderChanged,
   touchActivity,
@@ -297,27 +299,61 @@ describe("rate-limits DB helpers", () => {
     30_000,
   );
 
-  test("render-path 250ms DB budget may fail open within a sub-second writer wait", () => {
-    const lock = openDb(dbPath);
-    lock.exec("BEGIN IMMEDIATE");
+  test("render connection lock budgets remain distinct", () => {
+    const immediateDb = openImmediateRenderDb(dbPath);
+    expect(immediateDb.query<{ timeout: number }, []>("PRAGMA busy_timeout").get()).toEqual({
+      timeout: 0,
+    });
+    immediateDb.close();
+
+    const transactionalDb = openRenderDb(dbPath);
+    expect(transactionalDb.query<{ timeout: number }, []>("PRAGMA busy_timeout").get()).toEqual({
+      timeout: 250,
+    });
+    transactionalDb.close();
+
+    expect(db.query<{ timeout: number }, []>("PRAGMA busy_timeout").get()).toEqual({
+      timeout: 5000,
+    });
+  });
+
+  test("immediate render opener does not initialize schema", () => {
+    const rawPath = join(tmpDir, "immediate.db");
+    const immediateDb = openImmediateRenderDb(rawPath);
+    expect(
+      immediateDb
+        .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'")
+        .get(),
+    ).toBeNull();
+    immediateDb.close();
+  });
+
+  test("render-path shared merge fails open promptly beneath a held writer", () => {
+    db.exec("BEGIN IMMEDIATE");
     try {
-      const mergeStarted = performance.now();
+      const started = performance.now();
       const merged = mergeWithSharedDb(dbPath, {
         stdin: { fiveHour: { pct: 42, resetsAt: LIVE }, sevenDay: undefined },
         session: undefined,
         now: NOW,
       });
-      const mergeElapsed = performance.now() - mergeStarted;
+      const elapsed = performance.now() - started;
       expect(merged.rateLimits.fiveHour).toEqual({ pct: 42, resetsAt: LIVE });
       expect(merged.extra).toBeUndefined();
-      expect(mergeElapsed).toBeLessThan(1000);
-
-      const renderStarted = performance.now();
-      expect(renderChanged(dbPath, "locked", "content")).toBe(true);
-      expect(performance.now() - renderStarted).toBeLessThan(1000);
+      expect(elapsed).toBeLessThan(500);
     } finally {
-      lock.exec("ROLLBACK");
-      lock.close();
+      db.exec("ROLLBACK");
+    }
+  });
+
+  test("render fingerprint fails open promptly beneath a held writer", () => {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const started = performance.now();
+      expect(renderChanged(dbPath, "locked", "content")).toBe(true);
+      expect(performance.now() - started).toBeLessThan(500);
+    } finally {
+      db.exec("ROLLBACK");
     }
   });
 });
@@ -364,10 +400,22 @@ describe("renderChanged", () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "agent-hud-test-"));
     dbPath = join(tmpDir, "shared.db");
+    const initialized = openDb(dbPath);
+    initialized.close();
   });
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("missing schema fails open without initializer side effects", () => {
+    const rawPath = join(tmpDir, "uninitialized.db");
+    expect(renderChanged(rawPath, "sess1", "content-a")).toBe(true);
+    const rawDb = openImmediateRenderDb(rawPath);
+    expect(
+      rawDb.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'").get(),
+    ).toBeNull();
+    rawDb.close();
   });
 
   test("first render → changed", () => {

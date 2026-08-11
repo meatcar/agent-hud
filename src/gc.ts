@@ -11,7 +11,7 @@ import {
   MS_PER_SEC,
 } from "./constants.ts";
 import { getNumber, isObject } from "./json.ts";
-import { openRenderDb } from "./rate-limits.ts";
+import { openImmediateRenderDb } from "./rate-limits.ts";
 
 const GC_KEY = "gc:last";
 const ACTIVITY_PREFIX = "activity:";
@@ -161,7 +161,7 @@ const pruneStateFiles = async (stateDir: string, cutoff: number): Promise<void> 
 export const maybeGc = async (dbPath: string, stateDir: string, now: number): Promise<boolean> => {
   let db: Database | undefined;
   try {
-    db = openRenderDb(dbPath);
+    db = openImmediateRenderDb(dbPath);
     // Claim the sweep before pruning so concurrent sessions do not repeat it.
     if (!claimGc(db, now)) return false;
     pruneDbRows(db, now - GC_MAX_AGE_SECS, now - CMD_CACHE_MAX_AGE_SECS, now);
