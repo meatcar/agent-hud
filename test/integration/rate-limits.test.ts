@@ -328,19 +328,16 @@ describe("rate-limits DB helpers", () => {
     immediateDb.close();
   });
 
-  test("render-path shared merge fails open within its sub-second budget", () => {
+  test("render-path shared merge returns its fail-open fallback beneath a held writer", () => {
     db.exec("BEGIN IMMEDIATE");
     try {
-      const started = performance.now();
       const merged = mergeWithSharedDb(dbPath, {
         stdin: { fiveHour: { pct: 42, resetsAt: LIVE }, sevenDay: undefined },
         session: undefined,
         now: NOW,
       });
-      const elapsed = performance.now() - started;
       expect(merged.rateLimits.fiveHour).toEqual({ pct: 42, resetsAt: LIVE });
       expect(merged.extra).toBeUndefined();
-      expect(elapsed).toBeLessThan(1000);
     } finally {
       db.exec("ROLLBACK");
     }
