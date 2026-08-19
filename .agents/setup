@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+nix_profile="/nix/var/nix/profiles/default"
+
+echo "==> Checking Nix prerequisites"
+missing_packages=()
+command -v curl >/dev/null || missing_packages+=(curl)
+command -v xz >/dev/null || missing_packages+=(xz-utils)
+test -r /etc/ssl/certs/ca-certificates.crt || missing_packages+=(ca-certificates)
+if ((${#missing_packages[@]})); then
+  time sudo apt-get update
+  time sudo apt-get install -y "${missing_packages[@]}"
+fi
+
+if [[ ! -x "$nix_profile/bin/nix" ]]; then
+  echo "==> Installing Nix"
+  installer="$(mktemp)"
+  trap 'rm -f "$installer"' EXIT
+  curl --fail --location --proto '=https' --tlsv1.2 \
+    https://nixos.org/nix/install -o "$installer"
+  time sh "$installer" --daemon --yes
+  rm -f "$installer"
+  trap - EXIT
+fi
+
+# shellcheck disable=SC1091
+source "$nix_profile/etc/profile.d/nix-daemon.sh"
+
+echo "==> Enabling flakes"
+mkdir -p "$HOME/.config/nix"
+nix_config="$HOME/.config/nix/nix.conf"
+feature_line="extra-experimental-features = nix-command flakes"
+if ! grep -Fqx "$feature_line" "$nix_config" 2>/dev/null; then
+  printf '\n%s\n' "$feature_line" >> "$nix_config"
+fi
+
+echo "==> Persisting the repository development shell"
+profile_marker="# agent-hud Nix development shell"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<EOF
+
+$profile_marker
+if [[ -z "\${IN_NIX_SHELL:-}" && "\${PWD}" == "$repo_root" ]]; then
+  eval "\$("$nix_profile/bin/nix" print-dev-env "$repo_root")"
+  export PATH="$nix_profile/bin:\$PATH"
+fi
+EOF
+fi
+
+echo "==> Installing frozen Bun dependencies"
+time nix develop "$repo_root" --command bun install --frozen-lockfile
+
+echo "==> Orb setup complete"
