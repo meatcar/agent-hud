@@ -31,8 +31,9 @@ source "$nix_profile/etc/profile.d/nix-daemon.sh"
 echo "==> Enabling flakes"
 mkdir -p "$HOME/.config/nix"
 nix_config="$HOME/.config/nix/nix.conf"
-if ! grep -Eq '^experimental-features[[:space:]]*=.*nix-command.*flakes' "$nix_config" 2>/dev/null; then
-  printf '%s\n' 'experimental-features = nix-command flakes' >> "$nix_config"
+feature_line="extra-experimental-features = nix-command flakes"
+if ! grep -Fqx "$feature_line" "$nix_config" 2>/dev/null; then
+  printf '\n%s\n' "$feature_line" >> "$nix_config"
 fi
 
 echo "==> Persisting the repository development shell"
