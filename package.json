@@ -33,7 +33,7 @@
   "devDependencies": {
     "@tsconfig/bun": "^1.0.10",
     "@types/bun": "latest",
-    "fallow": "^2.66.2",
+    "fallow": "^3.0.0",
     "oxfmt": "^0.48.0",
     "oxlint": "^1.63.0",
     "oxlint-tsgolint": "^0.22.1",
