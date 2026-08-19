@@ -42,4 +42,7 @@ results/
 .codex/
 .claude/
 
+# Amp-generated portal manifests
+.amp/portals/*
+
 .fallow/

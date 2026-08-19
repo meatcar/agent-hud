@@ -25,6 +25,7 @@
           ++ [
             bun
             jujutsu # vcs drift tests spawn jj
+            nodejs
           ];
       };
     };
