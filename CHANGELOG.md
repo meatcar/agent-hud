@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/meatcar/agent-hud/compare/agent-hud-v0.3.0...agent-hud-v0.3.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **orb:** preserve existing Nix features ([a019851](https://github.com/meatcar/agent-hud/commit/a01985107c5441c1b632c39812a58456134515b9))
+
 ## [0.3.0](https://github.com/meatcar/agent-hud/compare/agent-hud-v0.2.0...agent-hud-v0.3.0) (2026-08-11)
 
 
