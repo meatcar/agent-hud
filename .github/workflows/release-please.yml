@@ -31,6 +31,7 @@ jobs:
       - name: Dispatch quality checks for release PR
         if: steps.release.outputs.prs_created == 'true'
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
         run: |
