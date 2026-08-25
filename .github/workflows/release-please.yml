@@ -17,6 +17,7 @@ jobs:
   release-please:
     needs: quality
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
@@ -27,6 +28,14 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         id: release
+      - name: Dispatch quality checks for release PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          ref="$(jq -er '.headBranchName' <<< "$RELEASE_PR")"
+          gh workflow run ci.yml --ref "$ref"
 
   npm-publish:
     needs: release-please
