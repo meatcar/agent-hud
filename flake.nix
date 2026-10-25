@@ -20,6 +20,7 @@
       imports = [
         inputs.flake-root.flakeModule
         inputs.treefmt-nix.flakeModule
+        ./nix/flake-modules/pkgs.nix
         ./nix/flake-modules/devshell.nix
         ./nix/flake-modules/package.nix
       ];
