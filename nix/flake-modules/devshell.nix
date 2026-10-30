@@ -25,9 +25,7 @@
           ++ [
             bun
             jujutsu # vcs drift tests spawn jj
-            # TODO: use default nodejs once nixos-26.05 Node 24 links brotli 1.2.1 (CVE-2026-111497).
-            # see https://nixpk.gs/pr-tracker.html?pr=577244
-            nodejs_22
+            nodejs
           ];
       };
     };
