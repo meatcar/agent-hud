@@ -31,12 +31,12 @@
     "bench:analyze": "bun run bench/analyze.ts"
   },
   "devDependencies": {
-    "@tsconfig/bun": "^1.0.10",
+    "@tsconfig/bun": "1.0.11",
     "@types/bun": "latest",
     "fallow": "^2.66.2",
-    "oxfmt": "^0.48.0",
-    "oxlint": "^1.63.0",
-    "oxlint-tsgolint": "^0.22.1",
+    "oxfmt": "0.48.0",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "0.22.1",
     "typescript": "5.9.3"
   }
 }
