@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.1](https://github.com/meatcar/agent-hud/compare/agent-hud-v0.3.0...agent-hud-v0.3.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **ci:** target repository for release checks ([883b772](https://github.com/meatcar/agent-hud/commit/883b772e20b68f0323a92ccdcf9ed80a37ccb72a))
+* **ci:** validate staged release PRs ([78ae940](https://github.com/meatcar/agent-hud/commit/78ae940d28f5b59ce517bdb805bd7734f0f46376))
+* mitigate CVE-2026-111497 in Bun and Node ([c7b2e63](https://github.com/meatcar/agent-hud/commit/c7b2e63a3f945c7c84b28e8351f316266420c9be))
+* **orb:** preserve existing Nix features ([a019851](https://github.com/meatcar/agent-hud/commit/a01985107c5441c1b632c39812a58456134515b9))
+
 ## [0.3.0](https://github.com/meatcar/agent-hud/compare/agent-hud-v0.2.0...agent-hud-v0.3.0) (2026-08-11)
 
 
